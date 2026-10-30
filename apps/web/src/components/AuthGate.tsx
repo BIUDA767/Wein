@@ -72,9 +72,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl border border-champagne-500/30"
             style={{ background: "linear-gradient(160deg, rgba(212,184,120,0.18), rgba(16,185,129,0.08))" }}
           >
-            <span className="font-display text-[26px] font-semibold text-champagne-300">P</span>
+            <span className="font-display text-[26px] font-semibold text-champagne-300">W</span>
           </div>
-          <h1 className="font-display text-[30px] tracking-tight text-white">PHIRST2</h1>
+          <h1 className="font-display text-[30px] tracking-[0.18em] text-white">WEIN</h1>
           <p className="mt-1.5 text-[13px] text-white/45">
             {isSetup ? "Create the owner account to begin." : "Sign in to continue."}
           </p>
@@ -137,7 +137,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         </div>
 
         <p className="mt-6 text-center text-[11px] leading-relaxed text-white/30">
-          PHIRST2 — Calm in execution. Precise in judgement. Relentless in discipline.
+          WEIN — Calm in execution. Precise in judgement. Relentless in discipline.
         </p>
       </div>
     </div>

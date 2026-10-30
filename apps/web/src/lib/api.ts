@@ -221,6 +221,20 @@ export interface VoiceSettings {
   autoSpeakAlerts: boolean;
 }
 
+export interface UiPreferences {
+  defaultAmount: number;
+  defaultDurationSec: number;
+  chartStyle: "candles" | "hollow" | "line" | "area";
+  chartGrid: boolean;
+  chartHeight: number;
+  defaultIndicators: string[];
+  timeframes: number[];
+  dashboardTiles: string[];
+  reducedMotion: boolean;
+  soundEnabled: boolean;
+  soundVolume: number;
+}
+
 export interface ChatReply {
   reply: string;
   source: "llm" | "fallback";

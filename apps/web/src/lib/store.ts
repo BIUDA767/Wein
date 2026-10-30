@@ -11,6 +11,7 @@ import {
   type VoiceSettings,
   type BrokerRecord,
   type NotificationRecord,
+  type UiPreferences,
 } from "./api";
 
 export interface ToastMessage {
@@ -33,6 +34,7 @@ export function useAppState(enabled: boolean) {
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [voice, setVoice] = useState<VoiceSettings | null>(null);
+  const [prefs, setPrefs] = useState<UiPreferences | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -52,13 +54,14 @@ export function useAppState(enabled: boolean) {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const [engineRes, riskRes, stratRes, brokerRes, notifRes, voiceRes] = await Promise.all([
+      const [engineRes, riskRes, stratRes, brokerRes, notifRes, voiceRes, prefRes] = await Promise.all([
         api.get<EngineStatus>("/api/engine/status"),
         api.get<{ config: RiskConfig }>("/api/risk"),
         api.get<{ strategies: StrategyRecord[] }>("/api/strategies"),
         api.get<{ brokers: BrokerRecord[] }>("/api/brokers"),
         api.get<{ notifications: NotificationRecord[] }>("/api/notifications?unread=true"),
         api.get<{ voice: VoiceSettings }>("/api/phirst/voice"),
+        api.get<{ preferences: UiPreferences }>("/api/preferences"),
       ]);
       setEngine(engineRes);
       setRisk(riskRes.config);
@@ -66,6 +69,7 @@ export function useAppState(enabled: boolean) {
       setBrokers(brokerRes.brokers);
       setNotifications(notifRes.notifications);
       setVoice(voiceRes.voice);
+      setPrefs(prefRes.preferences);
       setConnected(true);
       setLastError(null);
     } catch (err) {
@@ -124,6 +128,8 @@ export function useAppState(enabled: boolean) {
     notifications,
     voice,
     setVoice,
+    prefs,
+    setPrefs,
     connected,
     setConnected,
     lastError,

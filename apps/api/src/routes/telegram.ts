@@ -84,7 +84,7 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
         error(res, 400, "No Telegram chats are linked yet. Issue a link code and send /start to the bot.");
         return;
       }
-      await bot.broadcast("PHIRST2 test message", "This is a test notification sent from the PHIRST2 web app.");
+      await bot.broadcast("PHIRST2 test message", "This is a test notification sent from the WEIN web app.");
       await audit({ actor: "user", action: "telegram.test_broadcast", ip });
       json(res, 200, { ok: true, recipients: links.length });
     })();

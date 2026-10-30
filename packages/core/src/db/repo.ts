@@ -35,6 +35,10 @@ export async function findUserByUsername(username: string): Promise<UserRow | nu
   return queryOne<UserRow>("SELECT * FROM users WHERE username = $1", [username]);
 }
 
+export async function findUserById(id: string): Promise<UserRow | null> {
+  return queryOne<UserRow>("SELECT * FROM users WHERE id = $1", [id]);
+}
+
 export async function createSession(userId: string, tokenHash: string, expiresAt: Date, userAgent: string | null): Promise<void> {
   await exec(
     `INSERT INTO sessions (id, user_id, token_hash, expires_at, user_agent) VALUES ($1,$2,$3,$4,$5)`,
@@ -48,6 +52,23 @@ export async function findSession(tokenHash: string): Promise<{ user_id: string;
 
 export async function deleteSession(tokenHash: string): Promise<void> {
   await exec("DELETE FROM sessions WHERE token_hash = $1", [tokenHash]);
+}
+
+/** Set a new password hash for a user. */
+export async function updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+  await exec("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, passwordHash]);
+}
+
+/**
+ * Invalidate every session except the one that just changed the password. Keeps the
+ * current session usable while forcing any other logged-in device to sign in again.
+ */
+export async function deleteOtherSessions(userId: string, keepTokenHash: string): Promise<number> {
+  const rows = await query<{ id: string }>(
+    "DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2 RETURNING id",
+    [userId, keepTokenHash],
+  );
+  return rows.length;
 }
 
 export async function purgeExpiredSessions(): Promise<void> {

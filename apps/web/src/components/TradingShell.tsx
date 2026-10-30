@@ -2,23 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, type AvatarState } from "./Avatar";
-import { Chart, type IndicatorKey } from "./Chart";
+import { Chart, type ChartStyle, type IndicatorKey } from "./Chart";
 import { Card, ConfirmDialog, Dot, EmptyState, Pill, Row, SectionTitle, Sheet, Spinner, Toast } from "./ui";
 import { api, ApiFailure, type Candle, type ChatReply, type EngineStatus, type OrderRecord, type PerformanceReport, type PositionRecord } from "@/lib/api";
 import { useAppState } from "@/lib/store";
 import { useVoice } from "@/lib/voice";
+import { sound } from "@/lib/sound";
 import { Panels } from "./Panels";
 import { OrderSheet, AssetSheet, PhirstConsole } from "./Sheets";
 import { money, signed, timeAgo, statusTone } from "@/lib/format";
 
-const TIMEFRAMES = [
-  { label: "1m", seconds: 60 },
-  { label: "5m", seconds: 300 },
-  { label: "15m", seconds: 900 },
-  { label: "1h", seconds: 3600 },
-  { label: "4h", seconds: 14400 },
-  { label: "1d", seconds: 86400 },
-];
+const TIMEFRAME_LABELS: Record<number, string> = {
+  5: "5s", 15: "15s", 60: "1m", 300: "5m", 900: "15m", 3600: "1h", 14400: "4h", 86400: "1d",
+};
 
 const INDICATORS: Array<{ key: IndicatorKey; label: string }> = [
   { key: "ema", label: "EMA" },
@@ -29,7 +25,7 @@ const INDICATORS: Array<{ key: IndicatorKey; label: string }> = [
 
 export function TradingShell() {
   const app = useAppState(true);
-  const { engine, risk, brokers, notifications, voice, connected, refresh, notify, toasts, dismissToast } = app;
+  const { engine, risk, notifications, voice, connected, refresh, notify, toasts, dismissToast, prefs } = app;
 
   const [tab, setTab] = useState<"trade" | "positions" | "history">("trade");
   const [timeframe, setTimeframe] = useState(60);
@@ -54,6 +50,34 @@ export function TradingShell() {
   const price = engine?.lastPrice ?? (candles.length ? candles[candles.length - 1]!.close : null);
   const prevClose = candles.length > 1 ? candles[candles.length - 2]!.close : null;
   const change = price !== null && prevClose !== null && prevClose !== 0 ? ((price - prevClose) / prevClose) * 100 : null;
+
+  // Preferences drive real behaviour. Until they load, sensible defaults apply.
+  const chartStyle: ChartStyle = prefs?.chartStyle ?? "candles";
+  const chartGrid = prefs?.chartGrid ?? true;
+  const chartHeight = prefs?.chartHeight ?? 320;
+  const timeframes = prefs?.timeframes?.length ? prefs.timeframes : [60, 300, 900, 3600, 14400, 86400];
+  const tiles = prefs?.dashboardTiles ?? ["equity", "pnl", "open"];
+  const soundOn = prefs?.soundEnabled ?? true;
+
+  // Apply saved defaults once, when preferences first arrive.
+  const appliedDefaults = useRef(false);
+  useEffect(() => {
+    if (!prefs || appliedDefaults.current) return;
+    appliedDefaults.current = true;
+    setAmount(String(prefs.defaultAmount));
+    setDuration(String(prefs.defaultDurationSec));
+    setIndicators(prefs.defaultIndicators as IndicatorKey[]);
+    if (prefs.timeframes.length && !prefs.timeframes.includes(60)) setTimeframe(prefs.timeframes[0]!);
+    sound.setVolume(prefs.soundVolume);
+    sound.setMuted(!prefs.soundEnabled);
+  }, [prefs]);
+
+  // Keep the audio engine in step with the preference without re-running the setup above.
+  useEffect(() => {
+    if (!prefs) return;
+    sound.setMuted(!prefs.soundEnabled);
+    sound.setVolume(prefs.soundVolume);
+  }, [prefs?.soundEnabled, prefs?.soundVolume, prefs]);
 
   const loadChart = useCallback(
     async (sym: string, tf: number) => {
@@ -112,7 +136,7 @@ export function TradingShell() {
   }, [connected, loadTradingData, loadChart, symbol, timeframe]);
 
   const voiceSettings = voice ?? {
-    enabled: true, voice: "female" as const, accent: "ja-JP-inspired", rate: 1, pitch: 1,
+    enabled: true, voice: "male" as const, accent: "ja-JP-inspired", rate: 0.95, pitch: 0.85,
     pushToTalk: true, handsFree: false, autoSpeakAlerts: true,
   };
   const v = useVoice(voiceSettings);
@@ -139,6 +163,7 @@ export function TradingShell() {
         const res = await api.post<ChatReply>("/api/phirst/chat", { message });
         setChatLog((prev) => [...prev, { role: "phirst", text: res.reply, source: res.source, at: new Date().toISOString() }]);
         setUrgency(res.urgency);
+        if (res.urgency === "critical") sound.play("critical");
         v.speak(res.reply);
         if (res.source === "fallback" && res.error) {
           notify(`PHIRST2 language model unavailable (${res.error}). Reporting measured facts only.`, "warn");
@@ -160,6 +185,7 @@ export function TradingShell() {
       if (n.severity === "critical" || n.severity === "warning") {
         v.speak(`${n.title}. ${n.body}`);
         setUrgency(n.severity === "critical" ? "critical" : "attention");
+        sound.play(n.severity === "critical" ? "critical" : "alert");
       }
     }
   }, [notifications, voiceSettings.autoSpeakAlerts, voiceSettings.enabled, v]);
@@ -202,8 +228,36 @@ export function TradingShell() {
       notify(res.message ?? label, res.ok === false ? "bad" : "good");
     });
 
+  // A single tap feedback helper: only fires when sound is genuinely on.
+  const tap = useCallback(() => {
+    if (soundOn) sound.play("tap");
+  }, [soundOn]);
+
+  const kpiTiles: Array<{ key: string; label: string; value: React.ReactNode; tone?: "good" | "bad" }> = ([
+    { key: "equity", label: "Equity", value: money(engine?.equity) },
+    { key: "balance", label: "Balance", value: money(engine?.balance) },
+    {
+      key: "pnl",
+      label: "P&L today",
+      value: engine ? signed(engine.dailyPnl) : "—",
+      tone: (engine?.dailyPnl ?? 0) >= 0 ? "good" : "bad",
+    },
+    { key: "open", label: "Open", value: engine?.openTrades ?? 0 },
+    {
+      key: "drawdown",
+      label: "Drawdown",
+      value: engine ? `${(engine.drawdown * 100).toFixed(1)}%` : "—",
+      tone: (engine?.drawdown ?? 0) > 0.1 ? "bad" : undefined,
+    },
+    {
+      key: "winrate",
+      label: "Win rate",
+      value: perf && perf.totalTrades > 0 ? `${(perf.winRate * 100).toFixed(0)}%` : "—",
+    },
+  ] as Array<{ key: string; label: string; value: React.ReactNode; tone?: "good" | "bad" }>).filter((t) => tiles.includes(t.key));
+
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-[560px] flex-col pb-24">
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-[1180px] flex-col pb-24 lg:pb-10">
       {toasts.map((t) => (
         <Toast key={t.id} message={t.text} tone={t.tone} onDone={() => dismissToast(t.id)} />
       ))}
@@ -212,11 +266,11 @@ export function TradingShell() {
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-champagne-500/25 bg-champagne-500/10">
-              <span className="font-display text-[15px] font-semibold text-champagne-300">P</span>
+              <span className="font-display text-[15px] font-semibold text-champagne-300">W</span>
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-display text-[15px] tracking-tight text-white">PHIRST2</span>
+                <span className="font-display text-[15px] tracking-[0.14em] text-white">WEIN</span>
                 {engine && (
                   <Pill tone={statusTone(engine.state)}>
                     <Dot tone={statusTone(engine.state)} pulse={engine.state === "running"} />
@@ -233,7 +287,11 @@ export function TradingShell() {
           </div>
           <div className="flex items-center gap-2">
             {!connected && <Pill tone="bad"><Dot tone="bad" pulse />offline</Pill>}
-            <button onClick={() => setPanelsOpen(true)} className="rounded-full border border-white/12 bg-white/5 p-2 active:scale-95" aria-label="Open controls">
+            <button
+              onClick={() => { tap(); setPanelsOpen(true); }}
+              className="rounded-full border border-white/12 bg-white/5 p-2 active:scale-95"
+              aria-label="Open controls"
+            >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="text-white/80">
                 <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
               </svg>
@@ -241,221 +299,240 @@ export function TradingShell() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <div className="rounded-2xl border border-white/7 bg-white/3 px-2.5 py-2">
-            <div className="kpi-label">Equity</div>
-            <div className="mono-num text-[15px] font-semibold text-white">{money(engine?.equity)}</div>
-          </div>
-          <div className="rounded-2xl border border-white/7 bg-white/3 px-2.5 py-2">
-            <div className="kpi-label">P&amp;L today</div>
-            <div className={`mono-num text-[15px] font-semibold ${(engine?.dailyPnl ?? 0) >= 0 ? "text-emerald-400" : "text-ruby-400"}`}>
-              {engine ? signed(engine.dailyPnl) : "—"}
+        <div className={`mt-3 grid gap-2 ${kpiTiles.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+          {kpiTiles.map((t) => (
+            <div key={t.key} className="rounded-2xl border border-white/7 bg-white/3 px-2.5 py-2">
+              <div className="kpi-label">{t.label}</div>
+              <div className={`mono-num text-[15px] font-semibold ${t.tone === "good" ? "text-emerald-400" : t.tone === "bad" ? "text-ruby-400" : "text-white"}`}>
+                {t.value}
+              </div>
             </div>
-          </div>
-          <div className="rounded-2xl border border-white/7 bg-white/3 px-2.5 py-2">
-            <div className="kpi-label">Open</div>
-            <div className="mono-num text-[15px] font-semibold text-white">{engine?.openTrades ?? 0}</div>
-          </div>
+          ))}
         </div>
       </header>
 
-      <main className="flex-1 px-4 pt-4">
-        <section className="mb-3">
-          <button
-            onClick={() => setAssetSheetOpen(true)}
-            className="flex w-full items-center justify-between rounded-2xl border border-white/8 bg-white/3 px-3.5 py-3 text-left active:scale-[0.99]"
-          >
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[15px] font-semibold text-white">{symbol}</span>
-                <span className="text-[12px] text-white/40">{symbolName}</span>
-              </div>
-              <div className="mt-0.5 text-[11px] text-white/35">
-                {engine?.updatedAt ? `Updated ${timeAgo(engine.updatedAt)}` : "Awaiting data"}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="mono-num font-display text-[24px] leading-none tracking-tight text-white">
-                {price === null ? "—" : money(price)}
-              </div>
-              {change !== null && (
-                <div className={`mono-num mt-1 text-[12px] font-semibold ${change >= 0 ? "text-emerald-400" : "text-ruby-400"}`}>
-                  {change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(3)}%
-                </div>
-              )}
-            </div>
-          </button>
-        </section>
-
-        <div className="mb-3 flex rounded-2xl border border-white/8 bg-white/3 p-1">
-          {(["trade", "positions", "history"] as const).map((t) => (
+      {/* Desktop: chart left, controls right. Mobile: one column. */}
+      <main className="flex-1 px-4 pt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-5">
+        <div className="lg:min-w-0">
+          <section className="mb-3">
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 rounded-xl px-3 py-2 text-[12.5px] font-semibold capitalize transition ${tab === t ? "bg-white/10 text-white" : "text-white/45"}`}
+              onClick={() => { tap(); setAssetSheetOpen(true); }}
+              className="flex w-full items-center justify-between rounded-2xl border border-white/8 bg-white/3 px-3.5 py-3 text-left active:scale-[0.99]"
             >
-              {t}
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[15px] font-semibold text-white">{symbol}</span>
+                  <span className="text-[12px] text-white/40">{symbolName}</span>
+                </div>
+                <div className="mt-0.5 text-[11px] text-white/35">
+                  {engine?.updatedAt ? `Updated ${timeAgo(engine.updatedAt)}` : "Awaiting data"}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="mono-num font-display text-[24px] leading-none tracking-tight text-white">
+                  {price === null ? "—" : money(price)}
+                </div>
+                {change !== null && (
+                  <div className={`mono-num mt-1 text-[12px] font-semibold ${change >= 0 ? "text-emerald-400" : "text-ruby-400"}`}>
+                    {change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(3)}%
+                  </div>
+                )}
+              </div>
             </button>
-          ))}
-        </div>
+          </section>
 
-        {tab === "trade" && (
-          <>
-            <Card className="mb-3 !p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex gap-1 overflow-x-auto">
-                  {TIMEFRAMES.map((tf) => (
-                    <button key={tf.seconds} onClick={() => setTimeframe(tf.seconds)} className={`chip shrink-0 ${timeframe === tf.seconds ? "chip-active" : ""}`}>
-                      {tf.label}
+          <div className="mb-3 flex rounded-2xl border border-white/8 bg-white/3 p-1">
+            {(["trade", "positions", "history"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => { tap(); setTab(t); }}
+                className={`flex-1 rounded-xl px-3 py-2 text-[12.5px] font-semibold capitalize transition ${tab === t ? "bg-white/10 text-white" : "text-white/45"}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {tab === "trade" && (
+            <>
+              <Card className="mb-3 !p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex gap-1 overflow-x-auto">
+                    {timeframes.map((tf) => (
+                      <button
+                        key={tf}
+                        onClick={() => { tap(); setTimeframe(tf); }}
+                        className={`chip shrink-0 ${timeframe === tf ? "chip-active" : ""}`}
+                      >
+                        {TIMEFRAME_LABELS[tf] ?? `${tf}s`}
+                      </button>
+                    ))}
+                  </div>
+                  {chartLoading && <Spinner size={13} />}
+                </div>
+                <div className="mb-2 flex gap-1">
+                  {INDICATORS.map((ind) => (
+                    <button
+                      key={ind.key}
+                      onClick={() => { tap(); setIndicators((prev) => (prev.includes(ind.key) ? prev.filter((k) => k !== ind.key) : [...prev, ind.key])); }}
+                      className={`chip ${indicators.includes(ind.key) ? "chip-active" : ""}`}
+                    >
+                      {ind.label}
                     </button>
                   ))}
                 </div>
-                {chartLoading && <Spinner size={13} />}
-              </div>
-              <div className="mb-2 flex gap-1">
-                {INDICATORS.map((ind) => (
-                  <button
-                    key={ind.key}
-                    onClick={() => setIndicators((prev) => (prev.includes(ind.key) ? prev.filter((k) => k !== ind.key) : [...prev, ind.key]))}
-                    className={`chip ${indicators.includes(ind.key) ? "chip-active" : ""}`}
-                  >
-                    {ind.label}
-                  </button>
-                ))}
-              </div>
-              <Chart candles={candles} indicators={indicators} height={320} revision={candles.length} />
-            </Card>
+                <Chart
+                  candles={candles}
+                  indicators={indicators}
+                  height={chartHeight}
+                  revision={candles.length}
+                  chartStyle={chartStyle}
+                  grid={chartGrid}
+                />
+              </Card>
 
-            <div className="mb-4 grid grid-cols-2 gap-3">
-              <button className="btn-primary py-4 text-[16px]" onClick={() => setOrderSheet("buy")} disabled={!engine}>
-                Buy
-              </button>
-              <button className="btn-danger py-4 text-[16px]" onClick={() => setOrderSheet("sell")} disabled={!engine}>
-                Sell
-              </button>
-            </div>
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <button
+                  className="btn-primary py-4 text-[16px]"
+                  onClick={() => { tap(); setOrderSheet("buy"); }}
+                  disabled={!engine}
+                >
+                  Buy
+                </button>
+                <button
+                  className="btn-danger py-4 text-[16px]"
+                  onClick={() => { tap(); setOrderSheet("sell"); }}
+                  disabled={!engine}
+                >
+                  Sell
+                </button>
+              </div>
+            </>
+          )}
 
+          {tab === "positions" && (
             <Card className="mb-3">
-              <SectionTitle action={<button className="text-[11px] text-white/45" onClick={() => void loadTradingData()}>Refresh</button>}>
-                Active positions
-              </SectionTitle>
+              <SectionTitle>All positions</SectionTitle>
               {positions.length === 0 ? (
-                <EmptyState title="No open positions" body="Positions reported by the broker appear here. Fixed-expiry contracts show as open orders until they settle." />
+                <EmptyState title="No positions" body="The broker reports no open positions for the active account." />
               ) : (
                 positions.map((p) => (
-                  <Row
-                    key={p.id}
-                    label={`${p.side.toUpperCase()} ${p.symbol}`}
-                    hint={`Size ${money(p.size)} · entry ${money(p.entry_price)} · now ${money(p.current_price)}`}
-                    value={signed(Number(p.unrealized_pnl ?? 0))}
-                    tone={Number(p.unrealized_pnl ?? 0) >= 0 ? "good" : "bad"}
-                  />
+                  <Row key={p.id} label={`${p.side.toUpperCase()} ${p.symbol}`} hint={`Updated ${timeAgo(p.updated_at)}`} value={signed(Number(p.unrealized_pnl ?? 0))} />
                 ))
               )}
             </Card>
+          )}
 
-            <Card className="mb-3">
-              <SectionTitle>Recent orders</SectionTitle>
-              {orders.length === 0 ? (
-                <EmptyState title="No orders yet" body="Every order the engine or you place is recorded here with its real broker status." />
-              ) : (
-                orders.slice(0, 6).map((o) => (
-                  <Row
-                    key={o.id}
-                    label={`${o.side.toUpperCase()} ${o.symbol} · ${money(o.amount)}`}
-                    hint={`${o.status}${o.error ? ` — ${o.error}` : ""} · ${timeAgo(o.created_at)}`}
-                    value={o.profit === null ? o.status : signed(Number(o.profit))}
-                    tone={o.profit === null ? undefined : Number(o.profit) >= 0 ? "good" : "bad"}
-                  />
-                ))
-              )}
-            </Card>
-          </>
-        )}
+          {tab === "history" && (
+            <>
+              <Card className="mb-3">
+                <SectionTitle>Performance</SectionTitle>
+                {perf && perf.totalTrades > 0 ? (
+                  <>
+                    <Row label="Settled trades" value={String(perf.totalTrades)} />
+                    <Row label="Win rate" value={`${(perf.winRate * 100).toFixed(1)}%`} />
+                    <Row label="Net P&L" value={signed(perf.netPnl)} tone={perf.netPnl >= 0 ? "good" : "bad"} />
+                    <Row label="Profit factor" value={perf.profitFactor === null ? "—" : perf.profitFactor.toFixed(2)} />
+                    <Row label="Expectancy" value={signed(perf.expectancy)} tone={perf.expectancy >= 0 ? "good" : "bad"} />
+                    {perf.byStrategy.map((s) => (
+                      <Row key={s.strategyId} label={`Strategy ${s.strategyId}`} hint={`${s.trades} trades`} value={signed(s.pnl)} tone={s.pnl >= 0 ? "good" : "bad"} />
+                    ))}
+                  </>
+                ) : (
+                  <EmptyState title="No settled trades yet" body="Statistics appear once contracts settle. Nothing is estimated." />
+                )}
+              </Card>
+              <Card className="mb-3">
+                <SectionTitle>Order history</SectionTitle>
+                {orders.length === 0 ? (
+                  <EmptyState title="No orders" body="Order history is empty." />
+                ) : (
+                  orders.map((o) => (
+                    <Row
+                      key={o.id}
+                      label={`${o.side.toUpperCase()} ${o.symbol} · ${money(o.amount)}`}
+                      hint={`${o.origin} · ${o.mode} · ${o.status} · ${timeAgo(o.created_at)}`}
+                      value={o.profit === null ? "—" : signed(Number(o.profit))}
+                      tone={o.profit === null ? undefined : Number(o.profit) >= 0 ? "good" : "bad"}
+                    />
+                  ))
+                )}
+              </Card>
+            </>
+          )}
+        </div>
 
-        {tab === "positions" && (
+        {/* Right column on desktop; flows inline on mobile. */}
+        <div className="lg:sticky lg:top-[132px]">
           <Card className="mb-3">
-            <SectionTitle>All positions</SectionTitle>
+            <SectionTitle action={<button className="text-[11px] text-white/45" onClick={() => void loadTradingData()}>Refresh</button>}>
+              Active positions
+            </SectionTitle>
             {positions.length === 0 ? (
-              <EmptyState title="No positions" body="The broker reports no open positions for the active account." />
+              <EmptyState title="No open positions" body="Positions reported by the broker appear here. Fixed-expiry contracts show as open orders until they settle." />
             ) : (
               positions.map((p) => (
-                <Row key={p.id} label={`${p.side.toUpperCase()} ${p.symbol}`} hint={`Updated ${timeAgo(p.updated_at)}`} value={signed(Number(p.unrealized_pnl ?? 0))} />
+                <Row
+                  key={p.id}
+                  label={`${p.side.toUpperCase()} ${p.symbol}`}
+                  hint={`Size ${money(p.size)} · entry ${money(p.entry_price)} · now ${money(p.current_price)}`}
+                  value={signed(Number(p.unrealized_pnl ?? 0))}
+                  tone={Number(p.unrealized_pnl ?? 0) >= 0 ? "good" : "bad"}
+                />
               ))
             )}
           </Card>
-        )}
 
-        {tab === "history" && (
-          <>
-            <Card className="mb-3">
-              <SectionTitle>Performance</SectionTitle>
-              {perf && perf.totalTrades > 0 ? (
-                <>
-                  <Row label="Settled trades" value={String(perf.totalTrades)} />
-                  <Row label="Win rate" value={`${(perf.winRate * 100).toFixed(1)}%`} />
-                  <Row label="Net P&L" value={signed(perf.netPnl)} tone={perf.netPnl >= 0 ? "good" : "bad"} />
-                  <Row label="Profit factor" value={perf.profitFactor === null ? "—" : perf.profitFactor.toFixed(2)} />
-                  <Row label="Expectancy" value={signed(perf.expectancy)} tone={perf.expectancy >= 0 ? "good" : "bad"} />
-                  {perf.byStrategy.map((s) => (
-                    <Row key={s.strategyId} label={`Strategy ${s.strategyId}`} hint={`${s.trades} trades`} value={signed(s.pnl)} tone={s.pnl >= 0 ? "good" : "bad"} />
-                  ))}
-                </>
-              ) : (
-                <EmptyState title="No settled trades yet" body="Statistics appear once contracts settle. Nothing is estimated." />
-              )}
-            </Card>
-            <Card className="mb-3">
-              <SectionTitle>Order history</SectionTitle>
-              {orders.length === 0 ? (
-                <EmptyState title="No orders" body="Order history is empty." />
-              ) : (
-                orders.map((o) => (
-                  <Row
-                    key={o.id}
-                    label={`${o.side.toUpperCase()} ${o.symbol} · ${money(o.amount)}`}
-                    hint={`${o.origin} · ${o.mode} · ${o.status} · ${timeAgo(o.created_at)}`}
-                    value={o.profit === null ? "—" : signed(Number(o.profit))}
-                    tone={o.profit === null ? undefined : Number(o.profit) >= 0 ? "good" : "bad"}
-                  />
-                ))
-              )}
-            </Card>
-          </>
-        )}
+          <Card className="mb-3">
+            <SectionTitle>Recent orders</SectionTitle>
+            {orders.length === 0 ? (
+              <EmptyState title="No orders yet" body="Every order the engine or you place is recorded here with its real broker status." />
+            ) : (
+              orders.slice(0, 6).map((o) => (
+                <Row
+                  key={o.id}
+                  label={`${o.side.toUpperCase()} ${o.symbol} · ${money(o.amount)}`}
+                  hint={`${o.status}${o.error ? ` — ${o.error}` : ""} · ${timeAgo(o.created_at)}`}
+                  value={o.profit === null ? o.status : signed(Number(o.profit))}
+                  tone={o.profit === null ? undefined : Number(o.profit) >= 0 ? "good" : "bad"}
+                />
+              ))
+            )}
+          </Card>
 
-        <Card className="mb-3">
-          <SectionTitle>Engine control</SectionTitle>
-          {engine?.reason && (
-            <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-[12px] text-amber-200/90">{engine.reason}</div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <button className="btn-primary" disabled={busy !== null || engine?.state === "running" || engine?.state === "emergency"} onClick={() => void engineAction("start", "Engine started.")}>
-              {busy === "engine-start" ? <Spinner /> : "Start"}
+          <Card className="mb-3">
+            <SectionTitle>Engine control</SectionTitle>
+            {engine?.reason && (
+              <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-[12px] text-amber-200/90">{engine.reason}</div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button className="btn-primary" disabled={busy !== null || engine?.state === "running" || engine?.state === "emergency"} onClick={() => { tap(); void engineAction("start", "Engine started."); }}>
+                {busy === "engine-start" ? <Spinner /> : "Start"}
+              </button>
+              <button className="btn-ghost" disabled={busy !== null || engine?.state !== "running"} onClick={() => { tap(); void engineAction("pause", "Engine paused.", { reason: "Paused from the app." }); }}>
+                {busy === "engine-pause" ? <Spinner /> : "Pause"}
+              </button>
+              <button className="btn-ghost" disabled={busy !== null || engine?.state === "running" || engine?.state === "emergency"} onClick={() => { tap(); void engineAction("resume", "Engine resumed."); }}>
+                {busy === "engine-resume" ? <Spinner /> : "Resume"}
+              </button>
+              <button className="btn-ghost" disabled={busy !== null || engine?.state === "stopped"} onClick={() => { tap(); setConfirmStop(true); }}>
+                Stop
+              </button>
+            </div>
+            <button
+              className="btn-danger mt-2 w-full py-3.5"
+              disabled={busy !== null || engine?.state === "emergency"}
+              onClick={() => { tap(); void engineAction("emergency-stop", "Emergency stop engaged.", { reason: "Emergency stop from the app." }); }}
+            >
+              {busy === "engine-emergency-stop" ? <Spinner /> : "Emergency stop"}
             </button>
-            <button className="btn-ghost" disabled={busy !== null || engine?.state !== "running"} onClick={() => void engineAction("pause", "Engine paused.", { reason: "Paused from the app." })}>
-              {busy === "engine-pause" ? <Spinner /> : "Pause"}
-            </button>
-            <button className="btn-ghost" disabled={busy !== null || engine?.state === "running" || engine?.state === "emergency"} onClick={() => void engineAction("resume", "Engine resumed.")}>
-              {busy === "engine-resume" ? <Spinner /> : "Resume"}
-            </button>
-            <button className="btn-ghost" disabled={busy !== null || engine?.state === "stopped"} onClick={() => setConfirmStop(true)}>
-              Stop
-            </button>
-          </div>
-          <button
-            className="btn-danger mt-2 w-full py-3.5"
-            disabled={busy !== null || engine?.state === "emergency"}
-            onClick={() => void engineAction("emergency-stop", "Emergency stop engaged.", { reason: "Emergency stop from the app." })}
-          >
-            {busy === "engine-emergency-stop" ? <Spinner /> : "Emergency stop"}
-          </button>
-          {engine?.state === "emergency" && (
-            <button className="btn-champagne mt-2 w-full" disabled={busy !== null} onClick={() => void engineAction("reset-emergency", "Emergency stop cleared.")}>
-              {busy === "engine-reset-emergency" ? <Spinner /> : "Reset emergency stop"}
-            </button>
-          )}
-        </Card>
+            {engine?.state === "emergency" && (
+              <button className="btn-champagne mt-2 w-full" disabled={busy !== null} onClick={() => { tap(); void engineAction("reset-emergency", "Emergency stop cleared."); }}>
+                {busy === "engine-reset-emergency" ? <Spinner /> : "Reset emergency stop"}
+              </button>
+            )}
+          </Card>
+        </div>
       </main>
 
       <div className="fixed bottom-5 right-4 z-50 flex flex-col items-end gap-2">
@@ -465,7 +542,7 @@ export function TradingShell() {
           </div>
         )}
         <div className="relative">
-          <Avatar state={avatarState} size={64} urgency={urgency} onClick={() => setConsoleOpen(true)} />
+          <Avatar state={avatarState} size={64} urgency={urgency} onClick={() => setConsoleOpen(true)} speech={v.speechRef} />
           {notifications.length > 0 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ruby-500 px-1 text-[10px] font-bold text-white">
               {notifications.length > 9 ? "9+" : notifications.length}
@@ -527,6 +604,7 @@ export function TradingShell() {
         voice={v}
         voiceSettings={voiceSettings}
         engine={engine}
+        onTap={tap}
       />
 
       <Sheet open={panelsOpen} title="Controls" onClose={() => setPanelsOpen(false)}>

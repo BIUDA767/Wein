@@ -180,6 +180,26 @@ async function main(): Promise<void> {
   const recon = await call("POST", "/api/engine/reconcile");
   record("reconciliation runs", recon.status === 200, `positions=${recon.data?.result?.brokerPositions}`);
 
+  const prefs = await call("GET", "/api/preferences");
+  record("preferences load", prefs.status === 200 && typeof prefs.data?.preferences?.chartStyle === "string", `style=${prefs.data?.preferences?.chartStyle}`);
+
+  const prefsUpdate = await call("PUT", "/api/preferences", { chartStyle: "line", dashboardTiles: ["equity", "pnl", "open"], soundVolume: 0.5 });
+  record("preferences update persists", prefsUpdate.status === 200 && prefsUpdate.data?.preferences?.chartStyle === "line", `style=${prefsUpdate.data?.preferences?.chartStyle}`);
+
+  const prefsReverify = await call("GET", "/api/preferences");
+  record("preferences persisted across requests", prefsReverify.data?.preferences?.chartStyle === "line", `style=${prefsReverify.data?.preferences?.chartStyle}`);
+
+  const prefsInvalid = await call("PUT", "/api/preferences", { chartStyle: "rainbow" });
+  record("invalid preferences rejected", prefsInvalid.status === 400, `${prefsInvalid.data?.error}`);
+
+  await call("PUT", "/api/preferences", { chartStyle: "candles" });
+
+  const pwShort = await call("POST", "/api/auth/change-password", { currentPassword: "phirst2-owner-password", newPassword: "short" });
+  record("short new password rejected", pwShort.status === 400, `${pwShort.data?.error}`);
+
+  const pwWrong = await call("POST", "/api/auth/change-password", { currentPassword: "definitely-not-it", newPassword: "a-sufficiently-long-password" });
+  record("wrong current password rejected", pwWrong.status === 401, `${pwWrong.data?.error}`);
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n=== ${results.length - failed.length}/${results.length} passed ===`);
   if (failed.length) {

@@ -1,4 +1,6 @@
-# PHIRST2 final report
+# WEIN final report
+
+Product: WEIN (formerly PHIRST2). The AI companion is named PHIRST2.
 
 Owner: BAELAY. Status: paper-trading ready, live trading not yet enabled.
 
@@ -135,3 +137,44 @@ only verified path.
 - Telegram commands are authenticated and permission-checked per chat.
 - Broker secrets are never written to AI memory.
 - Every order, mode change, and emergency stop is written to an append-only audit log.
+
+## WEIN interface, companion and personalisation (added this session)
+
+**Rebrand.** The application is WEIN. PHIRST2 is the companion. Titles, the manifest, the
+sign-in screen and the header all read WEIN; the companion identity string is unchanged.
+
+**Launch sequence.** A one-time, skippable canvas animation: an ensō brush circle is drawn in
+one stroke, the WEIN wordmark resolves from it, and the mark contracts toward the companion's
+corner before handing over. It runs once per session and is skipped entirely under
+`prefers-reduced-motion`.
+
+**Sound identity.** Synthesised with the Web Audio API — no asset files. A Japanese pentatonic
+palette (launch figure, tap, confirm, reject, alert, critical, listen). Audio starts only on a
+real user gesture and can be muted or have its volume set in Appearance.
+
+**PHIRST2 avatar.** A Japanese-inspired male digital human drawn procedurally on a canvas every
+frame: layered skin shading, jaw and temple volume, iris depth with a limbal ring and
+catchlights, eyelids that close on blink, a tapered nose from shading rather than outline, and
+a swept hair mass with a champagne ornament. Blinks, saccades, breathing, head sway and a
+speaking nod are all functions of elapsed time and real state. The mouth follows a viseme
+timeline re-anchored on the speech engine's own word-boundary events.
+
+*Honest limit:* this is a stylised real-time render, not a photoreal capture, and lip-sync is
+text-and-timing driven because browsers expose no raw audio for synthesised speech. An
+avatar service was ruled out by budget; this is the realistic ceiling without one.
+
+**Personalisation (Appearance panel).** Chart style (candles, hollow, line, area), grid lines,
+chart height, indicators shown on load, selectable timeframes, dashboard tiles, trade defaults,
+sound on/off and volume, and a reduce-motion toggle. Every control changes real behaviour and
+is persisted server-side under `ui_preferences`; invalid values are rejected, not silently
+accepted.
+
+**Security.** Added an owner password-change flow (current password required; all other
+sessions revoked, the current one kept) with a working form in Security & memory. Added a PWA
+manifest and a generated app icon so WEIN installs to the iPhone home screen. Page zoom is no
+longer disabled.
+
+**Verification.** 105 unit tests across 10 files pass. Smoke suite now 49/49, covering
+preferences load/update/persistence/rejection and password-change validation. Live checks:
+preferences round-trip through the public host, and a full password change and revert
+(21 stale sessions revoked on the first change).

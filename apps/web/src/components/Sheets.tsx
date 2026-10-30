@@ -22,20 +22,29 @@ export function OrderSheet({
   busy: boolean;
   risk: { maxTradeAmount: number; riskPerTrade: number } | null;
 }) {
-  const [caps, setCaps] = useState<{ minExpirySec: number | null; fixedExpiry: boolean } | null>(null);
+  const [caps, setCaps] = useState<{ minExpirySec: number | null; fixedExpiry: boolean; supportsFiveSecond: boolean } | null>(null);
   useEffect(() => {
     if (!side) return;
     setCaps(null);
     void (async () => {
       try {
-        const res = await api.get<{ brokers: Array<{ isActive: boolean; capabilities: { minExpirySec?: number | null; fixedExpiry?: boolean } }> }>("/api/brokers");
+        const res = await api.get<{ brokers: Array<{ isActive: boolean; capabilities: Record<string, unknown> }> }>("/api/brokers");
         const active = res.brokers.find((b) => b.isActive);
-        setCaps({ minExpirySec: active?.capabilities?.minExpirySec ?? null, fixedExpiry: active?.capabilities?.fixedExpiry ?? false });
+        const c = (active?.capabilities ?? {}) as { minExpirySec?: number | null; fixedExpiry?: boolean; supportsFiveSecond?: boolean };
+        setCaps({
+          minExpirySec: c.minExpirySec ?? null,
+          fixedExpiry: c.fixedExpiry ?? false,
+          supportsFiveSecond: c.supportsFiveSecond ?? false,
+        });
       } catch {
         setCaps(null);
       }
     })();
   }, [side]);
+
+  // Only offer durations the active broker genuinely supports. Five-second expiry is
+  // shown only when the adapter reports it, never as a hopeful default.
+  const presets = caps?.supportsFiveSecond ? [5, 15, 60, 300] : [15, 60, 300, 900];
 
   return (
     <Sheet open={side !== null} title={side === "buy" ? `Buy ${symbol}` : `Sell ${symbol}`} onClose={onClose}>
@@ -58,7 +67,7 @@ export function OrderSheet({
         <label className="label">Duration (seconds)</label>
         <input className="field mono-num" inputMode="numeric" value={duration} onChange={(e) => onDuration(e.target.value)} />
         <div className="mt-2 flex gap-1.5">
-          {[5, 15, 60, 300].map((v) => (
+          {presets.map((v) => (
             <button key={v} className="chip" onClick={() => onDuration(String(v))}>{v}s</button>
           ))}
         </div>
@@ -66,6 +75,7 @@ export function OrderSheet({
           {caps?.minExpirySec
             ? `The active broker enforces a minimum expiry of ${caps.minExpirySec}s. Orders below it are refused rather than adjusted silently.`
             : "The active broker does not publish a minimum expiry. Orders are submitted as requested."}
+          {caps && !caps.supportsFiveSecond && " This broker does not report support for five-second expiry, so it is not offered."}
         </p>
       </div>
 
@@ -139,8 +149,15 @@ export function AssetSheet({
   );
 }
 
+/**
+ * The PHIRST2 conversation surface.
+ *
+ * Deliberately not called a "command centre": it opens as a conversation with the
+ * companion, the avatar is present, and the transcript is the primary content. The
+ * avatar is only drawn while this is open or the floating avatar is visible.
+ */
 export function PhirstConsole({
-  open, onClose, chatLog, busy, onAsk, avatarState, urgency, voice, voiceSettings, engine,
+  open, onClose, chatLog, busy, onAsk, avatarState, urgency, voice, voiceSettings, engine, onTap,
 }: {
   open: boolean;
   onClose: () => void;
@@ -152,6 +169,7 @@ export function PhirstConsole({
   voice: ReturnType<typeof useVoice>;
   voiceSettings: { pushToTalk: boolean; handsFree: boolean; enabled: boolean };
   engine: EngineStatus | null;
+  onTap?: () => void;
 }) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -164,9 +182,17 @@ export function PhirstConsole({
 
   const submit = () => {
     if (!input.trim()) return;
+    onTap?.();
     onAsk(input.trim());
     setInput("");
   };
+
+  const stateLabel =
+    avatarState === "speaking" ? "Speaking"
+    : avatarState === "listening" ? "Listening"
+    : avatarState === "thinking" ? "Thinking"
+    : avatarState === "alert" ? "Attention needed"
+    : "Ready";
 
   return (
     <div className="fixed inset-0 z-[65] flex flex-col bg-ink-950/97 backdrop-blur-2xl">
@@ -175,7 +201,7 @@ export function PhirstConsole({
           <div className="font-display text-[17px] tracking-tight text-white">PHIRST2</div>
           <div className="text-[11px] text-white/40">
             {voice.availability.synthesis ? `Voice: ${voice.availability.selectedVoiceName ?? "default"}` : "Speech synthesis unavailable"}
-            {voice.availability.japaneseVoices.length > 0 && ` · ${voice.availability.japaneseVoices.length} Japanese voice(s)`}
+            {voice.availability.japaneseVoices.length > 0 && ` · ${voice.availability.japaneseVoices.length} Japanese voice(s) available`}
           </div>
         </div>
         <button onClick={onClose} className="rounded-full border border-white/12 px-3.5 py-1.5 text-[12px] text-white/75 active:scale-95">
@@ -184,11 +210,9 @@ export function PhirstConsole({
       </div>
 
       <div className="flex flex-col items-center border-b border-white/6 px-5 py-5">
-        <Avatar state={avatarState} size={112} urgency={urgency} />
+        <Avatar state={avatarState} size={132} urgency={urgency} speech={voice.speechRef} />
         <div className="mt-3 text-center">
-          <div className="text-[13px] font-semibold text-white">
-            {avatarState === "speaking" ? "Speaking" : avatarState === "listening" ? "Listening" : avatarState === "thinking" ? "Thinking" : avatarState === "alert" ? "Attention needed" : "Ready"}
-          </div>
+          <div className="text-[13px] font-semibold text-white">{stateLabel}</div>
           <div className="mt-0.5 text-[11px] text-white/40">
             {engine ? `${engine.state} · ${engine.mode} · equity ${money(engine.equity)}` : "Awaiting engine"}
           </div>
@@ -234,12 +258,15 @@ export function PhirstConsole({
       <div className="safe-bottom border-t border-white/8 px-4 pt-3">
         <div className="mb-2 flex flex-wrap gap-1.5">
           {["Status", "Balance", "Risk", "Positions"].map((q) => (
-            <button key={q} className="chip" onClick={() => onAsk(q)}>{q}</button>
+            <button key={q} className="chip" onClick={() => { onTap?.(); onAsk(q); }}>{q}</button>
           ))}
         </div>
         <div className="flex items-end gap-2">
           <button
-            onPointerDown={() => voiceSettings.enabled && voice.startListening((text) => onAsk(text))}
+            onPointerDown={() => {
+              onTap?.();
+              if (voiceSettings.enabled) voice.startListening((text) => onAsk(text));
+            }}
             onPointerUp={() => voice.stopListening()}
             onPointerLeave={() => voice.listening && voice.stopListening()}
             disabled={!voiceSettings.enabled || !voice.availability.recognition}

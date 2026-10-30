@@ -6,9 +6,10 @@ import type { AppState } from "@/lib/store";
 import { ConfirmDialog, EmptyState, Pill, Row, SectionTitle, Spinner, Switch } from "./ui";
 import { money, signed, titleCase } from "@/lib/format";
 
-type PanelKey = "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
+type PanelKey = "appearance" | "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
 
 const PANELS: Array<{ key: PanelKey; label: string; hint: string }> = [
+  { key: "appearance", label: "Appearance", hint: "Chart, layout, dashboard and sound" },
   { key: "brokers", label: "Broker connections", hint: "Connect, verify and activate brokers" },
   { key: "risk", label: "Risk configuration", hint: "Limits enforced by the backend" },
   { key: "strategies", label: "Strategies", hint: "Built-in and custom, with approval" },
@@ -30,7 +31,8 @@ export function Panels({ app, perf, onRefresh }: { app: AppState; perf: Performa
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" strokeLinecap="round" /></svg>
           All controls
         </button>
-        {open === "brokers" && <BrokerPanel app={app} />}
+        {open === "appearance" && <AppearancePanel app={app} />}
+      {open === "brokers" && <BrokerPanel app={app} />}
         {open === "risk" && <RiskPanel app={app} />}
         {open === "strategies" && <StrategyPanel app={app} />}
         {open === "phirst" && <PhirstPanel app={app} perf={perf} />}
@@ -58,6 +60,218 @@ export function Panels({ app, perf, onRefresh }: { app: AppState; perf: Performa
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30"><path d="M9 6l6 6-6 6" strokeLinecap="round" /></svg>
         </button>
       ))}
+    </div>
+  );
+}
+
+// --- Appearance & personalisation ---------------------------------------------
+
+/**
+ * Every control here changes something real: the chart re-renders in the chosen style,
+ * the dashboard shows the chosen tiles, the trade sheet opens with the chosen defaults,
+ * and the sound engine respects the mute and volume. Preferences are persisted on the
+ * server, so they survive a reload and apply on any device.
+ */
+function AppearancePanel({ app }: { app: AppState }) {
+  const prefs = app.prefs;
+  const [draft, setDraft] = useState(prefs);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { if (prefs) setDraft(prefs); }, [prefs]);
+
+  if (!draft) return <div className="py-6 text-center text-[12px] text-white/40">Loading preferences…</div>;
+
+  const save = async (next: typeof draft) => {
+    setBusy(true);
+    setError(null);
+    // Optimistic: the UI updates immediately and reverts if the server refuses.
+    const previous = draft;
+    setDraft(next);
+    try {
+      const res = await api.put<{ preferences: typeof next }>("/api/preferences", next);
+      setDraft(res.preferences);
+      app.setPrefs(res.preferences);
+      app.notify("Appearance saved.", "good");
+    } catch (err) {
+      setDraft(previous);
+      const msg = err instanceof ApiFailure ? err.message : (err as Error).message;
+      setError(msg);
+      app.notify(msg, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ALL_TILES: Array<{ key: string; label: string }> = [
+    { key: "equity", label: "Equity" },
+    { key: "balance", label: "Balance" },
+    { key: "pnl", label: "P&L today" },
+    { key: "open", label: "Open trades" },
+    { key: "drawdown", label: "Drawdown" },
+    { key: "winrate", label: "Win rate" },
+  ];
+  const ALL_TIMEFRAMES: Array<{ sec: number; label: string }> = [
+    { sec: 5, label: "5s" }, { sec: 15, label: "15s" }, { sec: 60, label: "1m" },
+    { sec: 300, label: "5m" }, { sec: 900, label: "15m" }, { sec: 3600, label: "1h" },
+    { sec: 14400, label: "4h" }, { sec: 86400, label: "1d" },
+  ];
+
+  const toggleIn = <T,>(list: T[], value: T): T[] =>
+    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Chart</SectionTitle>
+      <div className="glass p-4">
+        <label className="label">Style</label>
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {(["candles", "hollow", "line", "area"] as const).map((style) => (
+            <button
+              key={style}
+              onClick={() => void save({ ...draft, chartStyle: style })}
+              className={`chip capitalize ${draft.chartStyle === style ? "chip-active" : ""}`}
+            >
+              {style}
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <div className="text-[13px] text-white/85">Grid lines</div>
+            <div className="text-[11px] text-white/35">Horizontal price guides</div>
+          </div>
+          <Switch checked={draft.chartGrid} label="Grid lines" onChange={(v) => void save({ ...draft, chartGrid: v })} />
+        </div>
+
+        <label className="label">Chart height — {draft.chartHeight}px</label>
+        <input
+          type="range"
+          min={200}
+          max={640}
+          step={20}
+          value={draft.chartHeight}
+          onChange={(e) => setDraft({ ...draft, chartHeight: Number(e.target.value) })}
+          onPointerUp={() => void save(draft)}
+          onKeyUp={() => void save(draft)}
+          className="w-full accent-emerald-500"
+        />
+      </div>
+
+      <SectionTitle>Indicators on load</SectionTitle>
+      <div className="glass p-4">
+        <div className="flex flex-wrap gap-1.5">
+          {[{ k: "ema", l: "EMA" }, { k: "sma", l: "SMA" }, { k: "bollinger", l: "Bollinger" }, { k: "rsi", l: "RSI" }].map((i) => (
+            <button
+              key={i.k}
+              onClick={() => void save({ ...draft, defaultIndicators: toggleIn(draft.defaultIndicators, i.k) })}
+              className={`chip ${draft.defaultIndicators.includes(i.k) ? "chip-active" : ""}`}
+            >
+              {i.l}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+          These are the indicators selected when the app opens. You can still toggle any indicator from the chart at any time.
+        </p>
+      </div>
+
+      <SectionTitle>Timeframes</SectionTitle>
+      <div className="glass p-4">
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_TIMEFRAMES.map((tf) => (
+            <button
+              key={tf.sec}
+              onClick={() => void save({ ...draft, timeframes: toggleIn(draft.timeframes, tf.sec) })}
+              className={`chip ${draft.timeframes.includes(tf.sec) ? "chip-active" : ""}`}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+          Only the selected timeframes appear in the chart selector. At least one must remain.
+        </p>
+      </div>
+
+      <SectionTitle>Dashboard tiles</SectionTitle>
+      <div className="glass p-4">
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_TILES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => void save({ ...draft, dashboardTiles: toggleIn(draft.dashboardTiles, t.key) })}
+              className={`chip ${draft.dashboardTiles.includes(t.key) ? "chip-active" : ""}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <SectionTitle>Trade defaults</SectionTitle>
+      <div className="glass p-4">
+        <label className="label">Default amount</label>
+        <input
+          className="field mono-num mb-4"
+          inputMode="decimal"
+          value={String(draft.defaultAmount)}
+          onChange={(e) => setDraft({ ...draft, defaultAmount: Number(e.target.value) || 0 })}
+          onBlur={() => void save(draft)}
+        />
+        <label className="label">Default duration (seconds)</label>
+        <input
+          className="field mono-num"
+          inputMode="numeric"
+          value={String(draft.defaultDurationSec)}
+          onChange={(e) => setDraft({ ...draft, defaultDurationSec: Math.floor(Number(e.target.value)) || 0 })}
+          onBlur={() => void save(draft)}
+        />
+        <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+          The order sheet opens with these values. The risk engine may still reduce the amount.
+        </p>
+      </div>
+
+      <SectionTitle>Sound</SectionTitle>
+      <div className="glass p-4">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <div className="text-[13px] text-white/85">Sound identity</div>
+            <div className="text-[11px] text-white/35">Launch, feedback and alert cues</div>
+          </div>
+          <Switch checked={draft.soundEnabled} label="Sound" onChange={(v) => void save({ ...draft, soundEnabled: v })} />
+        </div>
+        <label className="label">Volume — {Math.round(draft.soundVolume * 100)}%</label>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={draft.soundVolume}
+          disabled={!draft.soundEnabled}
+          onChange={(e) => setDraft({ ...draft, soundVolume: Number(e.target.value) })}
+          onPointerUp={() => void save(draft)}
+          onKeyUp={() => void save(draft)}
+          className="w-full accent-emerald-500 disabled:opacity-40"
+        />
+      </div>
+
+      <SectionTitle>Motion</SectionTitle>
+      <div className="glass p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[13px] text-white/85">Reduce motion</div>
+            <div className="text-[11px] text-white/35">Also honours the system setting automatically</div>
+          </div>
+          <Switch checked={draft.reducedMotion} label="Reduce motion" onChange={(v) => void save({ ...draft, reducedMotion: v })} />
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-2xl border border-ruby-500/35 bg-ruby-500/10 px-3.5 py-2.5 text-[12px] leading-relaxed text-ruby-400">{error}</div>
+      )}
+      {busy && <div className="text-center text-[11px] text-white/35">Saving…</div>}
     </div>
   );
 }
@@ -846,9 +1060,11 @@ function VoicePanel({ app }: { app: AppState }) {
 
       <SectionTitle>Avatar</SectionTitle>
       <div className="glass p-4">
-        <Row label="Style" value="Japanese-inspired" />
-        <Row label="Animation" value="State-driven" hint="Idle breathing, speaking lip-sync, listening pulse" />
-        <Row label="Placement" value="Floating, always available" />
+        <Row label="Style" value="Japanese-inspired digital human" />
+        <Row label="Rendering" value="Procedural canvas" hint="Drawn per frame; no image or video asset" />
+        <Row label="Lip sync" value="Viseme timeline" hint="Follows the speech engine's word-boundary events" />
+        <Row label="Motion" value="State-driven" hint="Breathing, blink, saccades, head sway, listening pulse" />
+        <Row label="Placement" value="Hidden until activated" hint="Floating button, opens the conversation" />
       </div>
 
       <button className="btn-ghost w-full" onClick={test}>Test voice on this device</button>
@@ -1057,6 +1273,38 @@ function SecurityPanel({ app }: { app: AppState }) {
   const [audit, setAudit] = useState<Array<{ id: string; actor: string; action: string; target: string | null; at: string }>>([]);
   const [memory, setMemory] = useState<MemoryRecord[]>([]);
   const [confirmPurge, setConfirmPurge] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMessage, setPwMessage] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
+
+  const changePassword = async () => {
+    setPwMessage(null);
+    if (newPassword.length < 12) {
+      setPwMessage({ tone: "bad", text: "New password must be at least 12 characters." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwMessage({ tone: "bad", text: "New passwords do not match." });
+      return;
+    }
+    setPwBusy(true);
+    try {
+      const res = await api.post<{ sessionsRevoked: number }>("/api/auth/change-password", { currentPassword, newPassword });
+      setPwMessage({
+        tone: "good",
+        text: `Password changed. ${res.sessionsRevoked} other session(s) were signed out.`,
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setPwMessage({ tone: "bad", text: err instanceof ApiFailure ? err.message : (err as Error).message });
+    } finally {
+      setPwBusy(false);
+    }
+  };
 
   const load = async () => {
     try {
@@ -1082,6 +1330,56 @@ function SecurityPanel({ app }: { app: AppState }) {
         <Row label="Live trading" value="Requires confirmation phrase" />
         <Row label="Emergency stop" value="Persistent, backend-enforced" />
         <Row label="AI memory" value="Broker secrets excluded" />
+      </div>
+
+      <SectionTitle>Owner password</SectionTitle>
+      <div className="glass p-4">
+        <label className="label">Current password</label>
+        <input
+          type="password"
+          className="field mb-3"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+        />
+        <label className="label">New password</label>
+        <input
+          type="password"
+          className="field mb-3"
+          autoComplete="new-password"
+          placeholder="At least 12 characters"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <label className="label">Confirm new password</label>
+        <input
+          type="password"
+          className="field mb-3"
+          autoComplete="new-password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <button
+          className="btn-ghost w-full"
+          disabled={pwBusy || !currentPassword || !newPassword || !confirmPassword}
+          onClick={() => void changePassword()}
+        >
+          {pwBusy ? <Spinner /> : "Change password"}
+        </button>
+        {pwMessage && (
+          <div
+            className={`mt-3 rounded-2xl border px-3.5 py-2.5 text-[12px] leading-relaxed ${
+              pwMessage.tone === "good"
+                ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-400"
+                : "border-ruby-500/35 bg-ruby-500/10 text-ruby-400"
+            }`}
+          >
+            {pwMessage.text}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+          Changing the password signs out every other device. This session stays active.
+        </p>
       </div>
 
       <SectionTitle>AI memory</SectionTitle>

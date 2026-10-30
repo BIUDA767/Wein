@@ -5,12 +5,18 @@ import type { Candle } from "@/lib/api";
 
 export type IndicatorKey = "ema" | "sma" | "bollinger" | "rsi" | "volume";
 
+export type ChartStyle = "candles" | "hollow" | "line" | "area";
+
 export interface ChartProps {
   candles: Candle[];
   indicators: IndicatorKey[];
   height?: number;
   /** Bumped by the parent whenever a new candle arrives, to trigger a redraw. */
   revision?: number;
+  /** Presentation style. All four are real renderers, not filters over one image. */
+  chartStyle?: ChartStyle;
+  /** Horizontal grid lines. */
+  grid?: boolean;
 }
 
 interface Point { x: number; y: number }
@@ -67,7 +73,7 @@ function rsi(values: number[], period = 14): Array<number | null> {
  * Canvas candlestick chart. Deliberately dependency-free: it draws the real candle
  * data supplied by the API and overlays the indicators the user selects.
  */
-export function Chart({ candles, indicators, height = 300, revision = 0 }: ChartProps) {
+export function Chart({ candles, indicators, height = 300, revision = 0, chartStyle = "candles", grid = true }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(360);
@@ -143,14 +149,16 @@ export function Chart({ candles, indicators, height = 300, revision = 0 }: Chart
     }
 
     // Horizontal grid.
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = padTop + ((priceHeight - padTop - padBottom) * i) / 4;
-      ctx.beginPath();
-      ctx.moveTo(padLeft, y);
-      ctx.lineTo(width - padRight, y);
-      ctx.stroke();
+    if (grid) {
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padTop + ((priceHeight - padTop - padBottom) * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(width - padRight, y);
+        ctx.stroke();
+      }
     }
 
     const highs = candles.map((c) => c.high);
@@ -196,26 +204,62 @@ export function Chart({ candles, indicators, height = 300, revision = 0 }: Chart
       }
     }
 
-    // Candles: emerald for up, ruby for down.
-    for (let i = 0; i < candles.length; i++) {
-      const c = candles[i]!;
-      const up = c.close >= c.open;
-      const color = up ? "#3ddc97" : "#ff5c7a";
-      const x = toX(i);
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, toY(c.high));
-      ctx.lineTo(x, toY(c.low));
-      ctx.stroke();
-      const yo = toY(c.open);
-      const yc = toY(c.close);
-      const top = Math.min(yo, yc);
-      const h = Math.max(1, Math.abs(yc - yo));
-      ctx.globalAlpha = up ? 0.95 : 0.9;
-      ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, h);
-      ctx.globalAlpha = 1;
+    // Price rendering. Each style is a distinct renderer over the same real candles.
+    if (chartStyle === "line" || chartStyle === "area") {
+      const path = new Path2D();
+      for (let i = 0; i < candles.length; i++) {
+        const x = toX(i);
+        const y = toY(candles[i]!.close);
+        if (i === 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
+      }
+      if (chartStyle === "area") {
+        // A gradient fill under the line, down to the plot floor.
+        const fill = new Path2D(path);
+        fill.lineTo(toX(candles.length - 1), priceHeight - padBottom);
+        fill.lineTo(toX(0), priceHeight - padBottom);
+        fill.closePath();
+        const grad = ctx.createLinearGradient(0, padTop, 0, priceHeight - padBottom);
+        grad.addColorStop(0, "rgba(61,220,151,0.26)");
+        grad.addColorStop(1, "rgba(61,220,151,0)");
+        ctx.fillStyle = grad;
+        ctx.fill(fill);
+      }
+      ctx.strokeStyle = "#3ddc97";
+      ctx.lineWidth = 1.8;
+      ctx.lineJoin = "round";
+      ctx.stroke(path);
+    } else {
+      for (let i = 0; i < candles.length; i++) {
+        const c = candles[i]!;
+        const up = c.close >= c.open;
+        const color = up ? "#3ddc97" : "#ff5c7a";
+        const x = toX(i);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, toY(c.high));
+        ctx.lineTo(x, toY(c.low));
+        ctx.stroke();
+        const yo = toY(c.open);
+        const yc = toY(c.close);
+        const top = Math.min(yo, yc);
+        const h = Math.max(1, Math.abs(yc - yo));
+        if (chartStyle === "hollow") {
+          // Hollow bodies: outline only, with a faint interior wash. Reads calmer
+          // than solid bars when many candles are on screen.
+          ctx.globalAlpha = 0.5;
+          ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, h);
+          ctx.globalAlpha = 1;
+          ctx.lineWidth = 1.1;
+          ctx.strokeRect(x - bodyWidth / 2, top, bodyWidth, h);
+        } else {
+          ctx.globalAlpha = up ? 0.95 : 0.9;
+          ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, h);
+          ctx.globalAlpha = 1;
+        }
+      }
     }
 
     // Overlays.
@@ -310,7 +354,7 @@ export function Chart({ candles, indicators, height = 300, revision = 0 }: Chart
       ctx.textBaseline = "middle";
       ctx.fillText(label, width - padRight + 7, toY(hc.close));
     }
-  }, [candles, series, width, height, hover, revision]);
+  }, [candles, series, width, height, hover, revision, chartStyle, grid]);
 
   const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

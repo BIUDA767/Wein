@@ -83,3 +83,24 @@ the behaviour it protects.
     the simulator does not know, so callers treat it as unresolved rather than a silent win.
 24. Settlement runs on the heartbeat as well as the tick, because a manual order can be placed
     while the engine is stopped and an expired contract must still resolve.
+25. The product is branded WEIN. PHIRST2 is the name of the AI companion only. Do not
+    reintroduce PHIRST2 as the application name in titles, headers, the manifest or the
+    sign-in screen; the identity string lives in `packages/ai/src/phirst.ts`.
+26. The avatar is drawn procedurally on a canvas, not loaded as an image or video. Lip-sync
+    is driven by the viseme timeline in `apps/web/src/lib/visemes.ts`, which is re-anchored
+    on the speech engine's real `boundary` events. Browsers expose no raw audio for
+    synthesised speech, so synchronisation is text-and-timing based; do not describe it as
+    spectral or phoneme-accurate.
+27. The sound identity is synthesised with the Web Audio API and has no asset files. Audio
+    can only start inside a user gesture, so `sound.unlock()` runs on the first pointer or
+    key event and every cue is a no-op until then. Never autoplay on load.
+28. User interface preferences are real settings stored under the `app_settings` key
+    `ui_preferences`. `normalisePreferences` rejects unknown values rather than substituting
+    defaults, and the client applies saved preferences optimistically, reverting on a
+    server refusal. A preference that does not change behaviour is a bug, not a decoration.
+29. Five-second expiry is offered only when the active broker's capabilities report
+    `supportsFiveSecond`. The order sheet reads capabilities from `/api/brokers`; it must
+    never present a duration the adapter cannot honour.
+30. Password changes require the current password and revoke every other session
+    (`deleteOtherSessions`), keeping the session that made the change. A session alone must
+    not be enough to lock the owner out.

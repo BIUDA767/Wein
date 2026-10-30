@@ -2,9 +2,12 @@ import {
   countUsers,
   createUser,
   findUserByUsername,
+  findUserById as queryUserById,
   createSession,
   findSession,
   deleteSession,
+  deleteOtherSessions,
+  updateUserPassword,
   hashPassword,
   verifyPassword,
   issueSessionToken,
@@ -102,6 +105,54 @@ export function registerAuthRoutes(router: Router, config: Config, log: Logger):
       clearSessionCookie(res);
       await audit({ actor: "user", action: "auth.logout", ip });
       json(res, 200, { ok: true });
+    })();
+  });
+
+  /**
+   * Change the owner password. Requires the current password, so a stolen session alone
+   * cannot lock the owner out. Every other session is revoked.
+   */
+  router.post("/api/auth/change-password", ({ res, body, cookies, ip }: RequestContext) => {
+    void (async () => {
+      const token = cookies[SESSION_COOKIE];
+      if (!token) {
+        error(res, 401, "Not signed in.");
+        return;
+      }
+      const session = await findSession(hashSessionToken(token));
+      if (!session || new Date(session.expires_at).getTime() < Date.now()) {
+        clearSessionCookie(res);
+        error(res, 401, "Session expired.");
+        return;
+      }
+      const { currentPassword, newPassword } = (body ?? {}) as { currentPassword?: string; newPassword?: string };
+      if (!currentPassword || !newPassword) {
+        error(res, 400, "Current and new passwords are required.");
+        return;
+      }
+      if (newPassword.length < 12) {
+        error(res, 400, "New password must be at least 12 characters.");
+        return;
+      }
+      if (newPassword === currentPassword) {
+        error(res, 400, "New password must differ from the current password.");
+        return;
+      }
+      const user = await queryUserById(session.user_id);
+      if (!user) {
+        error(res, 401, "Account not found.");
+        return;
+      }
+      const stored = JSON.parse(user.password_hash) as ReturnType<typeof hashPassword>;
+      if (!verifyPassword(currentPassword, stored)) {
+        await audit({ actor: user.username, action: "auth.change_password_failed", ip });
+        error(res, 401, "Current password is incorrect.");
+        return;
+      }
+      await updateUserPassword(user.id, JSON.stringify(hashPassword(newPassword)));
+      const revoked = await deleteOtherSessions(user.id, hashSessionToken(token));
+      await audit({ actor: user.username, action: "auth.change_password", detail: { sessionsRevoked: revoked }, ip });
+      json(res, 200, { ok: true, sessionsRevoked: revoked });
     })();
   });
 

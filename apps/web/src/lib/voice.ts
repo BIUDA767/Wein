@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VoiceSettings } from "./api";
+import { buildVisemeTimeline, indexForChar, type VisemeStep } from "./visemes";
 
 /**
  * Speech synthesis and recognition using the browser's own engines.
@@ -27,6 +28,22 @@ export function useVoice(settings: VoiceSettings) {
   const [transcript, setTranscript] = useState("");
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  /**
+   * Live speech timeline, sampled per animation frame by the avatar.
+   *
+   * Kept in a ref rather than state so lip-sync runs at display refresh rate without
+   * re-rendering React on every frame. `anchorIndex`/`anchorTime` are re-set each time
+   * the engine reports a real word boundary, so the mouth follows the actual speech and
+   * corrects itself instead of drifting.
+   */
+  const speechRef = useRef({
+    steps: [] as VisemeStep[],
+    anchorIndex: 0,
+    anchorTime: 0,
+    rate: 0.012, // viseme steps per millisecond
+    active: false,
+  });
 
   const synthesisAvailable = typeof window !== "undefined" && "speechSynthesis" in window;
   const recognitionAvailable =
@@ -73,9 +90,38 @@ export function useVoice(settings: VoiceSettings) {
       if (selectedVoice) utterance.voice = selectedVoice;
       utterance.rate = settings.rate;
       utterance.pitch = settings.pitch;
-      utterance.onstart = () => setSpeaking(true);
-      utterance.onend = () => setSpeaking(false);
-      utterance.onerror = () => setSpeaking(false);
+
+      // Build the viseme timeline and a nominal pace. The pace is only a starting
+      // estimate; boundary events below re-anchor it against the real speech.
+      const steps = buildVisemeTimeline(text);
+      const nominalMs = Math.max(600, (text.length / 13.5) * 1000 / Math.max(0.5, settings.rate));
+      speechRef.current = {
+        steps,
+        anchorIndex: 0,
+        anchorTime: performance.now(),
+        rate: steps.length / nominalMs,
+        active: true,
+      };
+
+      utterance.onstart = () => {
+        speechRef.current.anchorTime = performance.now();
+        speechRef.current.anchorIndex = 0;
+        setSpeaking(true);
+      };
+      // The engine tells us which character it has reached; snap the timeline to it.
+      utterance.onboundary = (event) => {
+        if (typeof event.charIndex !== "number") return;
+        speechRef.current.anchorIndex = indexForChar(speechRef.current.steps, event.charIndex);
+        speechRef.current.anchorTime = performance.now();
+      };
+      utterance.onend = () => {
+        speechRef.current.active = false;
+        setSpeaking(false);
+      };
+      utterance.onerror = () => {
+        speechRef.current.active = false;
+        setSpeaking(false);
+      };
       window.speechSynthesis.speak(utterance);
       return true;
     },
@@ -84,6 +130,7 @@ export function useVoice(settings: VoiceSettings) {
 
   const stopSpeaking = useCallback(() => {
     if (synthesisAvailable) window.speechSynthesis.cancel();
+    speechRef.current.active = false;
     setSpeaking(false);
   }, [synthesisAvailable]);
 
@@ -152,5 +199,7 @@ export function useVoice(settings: VoiceSettings) {
     stopListening,
     transcript,
     recognitionError,
+    /** Sampled per animation frame by the avatar for lip synchronisation. */
+    speechRef,
   };
 }

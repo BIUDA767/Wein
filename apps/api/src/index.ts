@@ -20,6 +20,7 @@ import { registerEngineRoutes } from "./routes/engine.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
 import { registerPhirstRoutes } from "./routes/phirst.ts";
 import { registerTelegramRoutes } from "./routes/telegram.ts";
+import { registerPreferencesRoutes } from "./routes/preferences.ts";
 import { TelegramBot } from "./lib/telegram.ts";
 
 async function main(): Promise<void> {
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
       return false;
     }
   });
+  registerPreferencesRoutes(router);
   registerTelegramRoutes(router, telegram, log);
   await telegram.start();
 
@@ -143,7 +145,7 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-  log.info("PHIRST2 API ready", {
+  log.info("WEIN API ready", {
     port,
     env: config.env,
     gemini: gemini.available,
