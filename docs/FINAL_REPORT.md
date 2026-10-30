@@ -34,6 +34,11 @@ no trading state and cannot place an order by itself.
   trades, consecutive-loss de-risking, allowed instruments and strategies. Final veto on every
   order. No martingale anywhere.
 - **Settlement.** Fixed-expiry contracts settle on expiry, realise P&L, and update equity.
+- **Paper durability.** The paper simulator holds its balance and open contracts in memory,
+  so it is rebuilt from the database on every start: realized profit from settled orders, open
+  contracts from open orders. A restart no longer resets the balance or orphans an open
+  contract. Settlement also runs on the heartbeat, so an order placed while the engine is
+  stopped still expires and resolves.
 - **Connectivity resilience.** While running, the engine re-verifies the broker connection.
   On a loss it blocks new trades and raises a critical alert; open contracts still settle once
   the broker is reachable again. On recovery it reconciles real positions and pending orders
@@ -48,7 +53,7 @@ no trading state and cannot place an order by itself.
 
 | Check | Result |
 | --- | --- |
-| `npm run verify` (typecheck + unit) | 91 tests, 8 files, all pass |
+| `npm run verify` (typecheck + unit) | 93 tests, 9 files, all pass |
 | `npm run smoke` against the running API | 43 checks, all pass |
 | Database integration tests | 3 pass against a real PostgreSQL (`TEST_DATABASE_URL`) |
 | Settlement end to end | Order placed, expired, settled, realised P&L booked, equity updated |
