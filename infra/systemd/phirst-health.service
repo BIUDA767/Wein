@@ -1,0 +1,12 @@
+# Probes /api/health and restarts the API if it does not answer 200. systemd
+# already restarts a crashed process; this catches a hung one that still accepts
+# connections but cannot reach the database.
+[Unit]
+Description=PHIRST2 health probe
+After=phirst-api.service
+
+[Service]
+Type=oneshot
+User=phirst
+EnvironmentFile=/opt/phirst2/.env
+ExecStart=/bin/sh -c 'curl -fsS --max-time 10 http://127.0.0.1:${PHIRST_API_PORT}/api/health >/dev/null || systemctl restart phirst-api'

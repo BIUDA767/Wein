@@ -1,0 +1,11 @@
+# One-shot database backup. Triggered by phirst-backup.timer.
+[Unit]
+Description=PHIRST2 database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=phirst
+WorkingDirectory=/opt/phirst2
+EnvironmentFile=/opt/phirst2/.env
+ExecStart=/opt/phirst2/scripts/backup.sh

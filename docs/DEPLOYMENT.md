@@ -75,8 +75,37 @@ sudo systemctl restart phirst-api           # engine returns paused; it never au
 sudo systemctl stop phirst-api              # release the leader lock and close broker sockets
 ```
 
-Backups: `pg_dump` the `phirst` database on a schedule; the audit log and order history are the
-records that matter. Nothing else on the host is stateful.
+### Backups
+
+`scripts/backup.sh` dumps the database to a timestamped, compressed file, verifies the archive
+is readable, and prunes anything older than `PHIRST_BACKUP_RETENTION_DAYS` (default 14). It
+writes to a temporary name and renames only after `pg_dump` succeeds, so a partial dump can never
+be mistaken for a good one.
+
+```bash
+sudo -u phirst PHIRST_BACKUP_DIR=/var/backups/phirst2 scripts/backup.sh
+# Verify a backup restores before you rely on it:
+gunzip -c /var/backups/phirst2/phirst-*.sql.gz | psql "$DATABASE_URL" 
+```
+
+Install the timer to run it nightly at 03:15 UTC:
+
+```bash
+sudo systemctl enable --now phirst-backup.timer
+```
+
+The order history and audit log are the records that matter; everything else on the host is
+reproducible from the repository.
+
+### Health supervision
+
+systemd restarts a crashed process. `phirst-health.timer` additionally probes `/api/health`
+every minute and restarts the API if it does not answer 200, which catches a process that is
+hung but still accepting connections.
+
+```bash
+sudo systemctl enable --now phirst-health.timer
+```
 
 ## Recovery model
 

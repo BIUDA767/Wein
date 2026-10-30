@@ -70,3 +70,6 @@ the behaviour it protects.
     connection blocks new orders and raises a critical alert, but settlement continues so open
     contracts still resolve. On recovery the engine reconciles positions and pending orders
     before resuming; it never resubmits an order with an uncertain outcome.
+21. Backups are written to a temporary name and renamed only after `pg_dump` exits cleanly, then
+    verified with `gzip -t`. A partial dump must never be mistaken for a good one. A backup that
+    has not been restored is not a backup; verify a restore before trusting one.
