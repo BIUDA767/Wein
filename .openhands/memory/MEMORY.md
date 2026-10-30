@@ -45,38 +45,25 @@ Index of durable facts. Detail lives in daily logs.
   honest "no database" skip, not a failure.
 
 ## Session 2026-10-29 (later) — mobile push notifications (see log)
-- Real Web Push shipped: `web_push` adapter (VAPID from vault), `0004_push.sql`,
-  `services/push.ts`, `notify()` → `push.send` job. Delivery verified against FCM
-  (HTTP 201). Device revocation cascades to push subscriptions.
-- Root cause of a "No adapter for web_push" bug: **only the worker bootstraps the
-  adapter registry; the web process never did.** Fix = lazy `ensureAdapters()`
-  before `getAdapter` in `services/providers.ts` (AGENTS.md invariant 42).
-- Mobile quick actions deep-link into the studio with a preset
-  (`/studio?preset=…&start=…`); PWA shortcuts match.
+- Real Web Push: `web_push` adapter (VAPID from vault), `services/push.ts`, `notify()`
+  → `push.send`. Device revocation cascades to subscriptions. Root cause of a
+  "No adapter for web_push" bug: **only the worker bootstrapped the adapter registry**;
+  fix = lazy `ensureAdapters()` before `getAdapter` (AGENTS.md invariant 42).
+- Mobile quick actions deep-link into the studio (`/studio?preset=…&start=…`).
 
-## Session 2026-10-29 — QWEEK creator-platform upgrade pass (see 2026-10-29.md)
-- Verified `0003_creator_platform.sql` (credit reserve/settle/release, publish
-  approval state machine, capability registry, repurposing, Video Studio,
-  assistant, rate limiting) and exercised every new surface live.
-- Credit model proven: failed/unconfigured runs release their hold and net to
-  zero; entitlement gating refuses premium features on the free plan.
-- Made the theme preference real: dark/light/system CSS tokens, `ThemeScript`
-  pre-paint, `data-reduced-motion`, Appearance control in Settings.
-- **Build with `NODE_ENV=production npm run build`** — the sandbox sets
-  `NODE_ENV=development` globally and the static export fails otherwise.
-- Test suite now 97 tests / 5 files. AGENTS.md invariants 38–40 added.
-
-## Session 2026-10-30 — single-writer engine lock + packaging (see log)
-- **Postgres advisory locks are per session.** The engine's leader lock
-  (`packages/core/src/db/pool.ts`: `acquireLeaderLock(key)` → token|null,
-  `holdsLeaderLock(token)`, `releaseLeaderLock(token)`) must give each acquire its
-  OWN connection. Caching one client and short-circuiting lets two engines in one
-  process both "hold" it. Enforced in both `tick()` and `manualOrder()`.
-- `TradingEngine.init()` re-runs on broker changes; guard re-acquisition with
-  `if (this.leader === null)` or it nulls a lock it already holds.
-- `TEST_DATABASE_URL` (→ `phirst_test`) must be created and migrated or DB tests
-  fail with `relation "orders" does not exist`. `scripts/test-db-setup.sh` does it.
-- Suite: 91 tests / 8 files (`npm run verify`); smoke 43/43. Engine runs inside
-  `apps/api` deliberately (single writer); `apps/engine` does not exist.
-- Added `.env.example`, `infra/systemd/*.service`, `docs/DEPLOYMENT.md`,
-  `docs/FINAL_REPORT.md`.
+## Session 2026-10-30 (later) — WEIN rebrand + realistic avatar (commit 306320f)
+- **Product is WEIN; PHIRST2 is the companion only.** App chrome/titles/manifest/auth/logs =
+  WEIN; anything the assistant "speaks" (avatar label, chat sheet, "Ask PHIRST2",
+  "PHIRST2 settings/memory") stays PHIRST2. Never blind-sed. Identity string in
+  `packages/ai/src/phirst.ts`.
+- Avatar is **procedural canvas** (no paid service, no assets), lip-sync from
+  `apps/web/src/lib/visemes.ts` re-anchored on real speech `boundary` events — text+timing,
+  not spectral. Sound identity is Web Audio, gesture-gated (`sound.unlock()`).
+- Personalisation is real: `GET/PUT /api/preferences` (`app_settings.ui_preferences`);
+  `normalisePreferences` rejects unknown values. Change-password endpoint revokes other
+  sessions, keeps the caller's.
+- **Restart discipline:** web needs `NODE_ENV=production npx next build` + `next start`
+  restart; API runs under `tsx` but still needs a restart for new routes. `EADDRINUSE` =
+  already running, not a failure.
+- Test shape now **105 tests / 10 files**; smoke **49/49**. Gemini free tier is 429 →
+  chat honestly falls back to measured facts (`source:"fallback"`).
