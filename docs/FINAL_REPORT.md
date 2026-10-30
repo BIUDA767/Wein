@@ -34,6 +34,10 @@ no trading state and cannot place an order by itself.
   trades, consecutive-loss de-risking, allowed instruments and strategies. Final veto on every
   order. No martingale anywhere.
 - **Settlement.** Fixed-expiry contracts settle on expiry, realise P&L, and update equity.
+- **Connectivity resilience.** While running, the engine re-verifies the broker connection.
+  On a loss it blocks new trades and raises a critical alert; open contracts still settle once
+  the broker is reachable again. On recovery it reconciles real positions and pending orders
+  before resuming, and never resubmits an order whose outcome was uncertain.
 - **AI companion.** PHIRST2 avatar with lip-sync, push-to-talk and text chat, voice settings,
   proactive alerts, secure editable/deletable memory.
 - **Reporting.** Performance report, trade history, equity curve, per-strategy P&L.
@@ -50,6 +54,7 @@ no trading state and cannot place an order by itself.
 | Settlement end to end | Order placed, expired, settled, realised P&L booked, equity updated |
 | Engine end to end | 133 signals observed, exactly one order placed (no stacking), live Deriv feed |
 | Leader lock | A second engine instance is refused; it cannot place a duplicate order |
+| Connectivity loss and recovery | A simulated broker outage blocks new trades and alerts BAELAY; recovery reconciles before resuming |
 
 Three real production bugs were found and fixed during verification:
 

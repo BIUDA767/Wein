@@ -108,6 +108,7 @@ export class TradingEngine {
   private consecutiveFailures = 0;
   private heartbeat: NodeJS.Timeout | null = null;
   private leader: number | null = null;
+  private lastConnectivityCheck = 0;
 
   constructor(private opts: EngineOptions) {
     this.broker = new BrokerManager(opts.vault, opts.log, opts.paperStartingBalance);
@@ -301,6 +302,71 @@ export class TradingEngine {
     await this.broker.close();
   }
 
+  private execDeps(): ExecutionDeps {
+    return {
+      log: this.opts.log,
+      adapter: this.active!.adapter,
+      brokerId: this.active!.broker.id,
+      accountId: String(this.active!.account?.account_id ?? "default"),
+      mode: this.mode,
+    };
+  }
+
+  /**
+   * Re-verify broker connectivity while running. On a loss, new trades are blocked and
+   * BAELAY is alerted; on recovery, real positions and pending orders are reconciled
+   * before trading resumes. A paper broker always verifies, so this never blocks paper
+   * trading. The check is throttled so it does not hammer the provider.
+   */
+  private async checkConnectivity(): Promise<void> {
+    if (!this.active) return;
+    const now = Date.now();
+    if (now - this.lastConnectivityCheck < 5000) return;
+    this.lastConnectivityCheck = now;
+    let ok = false;
+    let message = "";
+    try {
+      const check = await this.active.adapter.verifyConnection();
+      ok = check.ok;
+      message = check.message;
+    } catch (err) {
+      ok = false;
+      message = (err as Error).message;
+    }
+    if (!ok && this.brokerConnected) {
+      this.brokerConnected = false;
+      this.brokerError = message;
+      this.opts.log.error("broker connection lost; new trades are blocked", { message });
+      await insertNotification({
+        severity: "critical",
+        title: "Broker connection lost",
+        body: `New trades are blocked until connectivity is restored. ${message}`,
+        category: "system",
+      });
+      await audit({ actor: "system", action: "broker.disconnected", detail: { message } });
+    } else if (ok && !this.brokerConnected) {
+      this.brokerConnected = true;
+      this.brokerError = null;
+      this.opts.log.warn("broker connection restored; reconciling before resuming");
+      let reconciled: { brokerPositions: number; matched: number; resolved: number; unresolved: string[] } | null = null;
+      try {
+        reconciled = await reconcile(this.execDeps());
+        this.opts.log.info("reconciled after reconnect", { ...reconciled });
+      } catch (err) {
+        this.opts.log.error("reconcile after reconnect failed", { error: (err as Error).message });
+      }
+      await insertNotification({
+        severity: "info",
+        title: "Broker connection restored",
+        body: reconciled
+          ? `Positions reconciled (${reconciled.matched} matched, ${reconciled.unresolved.length} unresolved). Trading may resume.`
+          : "Connectivity restored. Trading may resume.",
+        category: "system",
+      });
+      await audit({ actor: "system", action: "broker.reconnected" });
+    }
+  }
+
   // --- Main loop --------------------------------------------------------------
 
   async tick(): Promise<void> {
@@ -333,13 +399,7 @@ export class TradingEngine {
       await this.refreshBroker();
       if (!this.active || !this.market) return;
     }
-    const deps: ExecutionDeps = {
-      log: this.opts.log,
-      adapter: this.active.adapter,
-      brokerId: this.active.broker.id,
-      accountId: String(this.active.account?.account_id ?? "default"),
-      mode: this.mode,
-    };
+    const deps = this.execDeps();
 
     // 1. Settle expired contracts.
     const settled = await settleOpenOrders(deps);
@@ -348,9 +408,12 @@ export class TradingEngine {
     }
     if (settled.length > 0) await this.refreshStats();
 
-    // 2. Refresh account state and risk context.
+    // 2. Refresh account state and risk context, then re-verify connectivity. A lost
+    //    connection blocks new trades but settlement continues, so open contracts still
+    //    resolve once the broker is reachable again.
     await this.refreshStats();
     await this.refreshPrice();
+    await this.checkConnectivity();
 
     if (this.state !== "running") return;
 
@@ -451,8 +514,13 @@ export class TradingEngine {
       return;
     }
 
-    // 5. Place exactly one order, sized by the risk engine. Only the process holding
-    //    the advisory leader lock may trade, so a stray second engine cannot duplicate it.
+    // 5. Place exactly one order, sized by the risk engine. Never open a trade on a
+    //    dead connection, and only the process holding the advisory leader lock may
+    //    trade, so a stray second engine cannot duplicate it.
+    if (!this.brokerConnected) {
+      this.opts.log.debug("skipping order: broker is not connected");
+      return;
+    }
     if (!holdsLeaderLock(this.leader)) {
       this.opts.log.debug("skipping order: this process does not hold the engine leader lock");
       return;
@@ -665,13 +733,7 @@ export class TradingEngine {
     if (!this.brokerConnected && this.mode === "live") {
       return { ok: false, message: "Broker is not connected; live orders are blocked." };
     }
-    const deps: ExecutionDeps = {
-      log: this.opts.log,
-      adapter: this.active.adapter,
-      brokerId: this.active.broker.id,
-      accountId: String(this.active.account?.account_id ?? "default"),
-      mode: this.mode,
-    };
+    const deps = this.execDeps();
     if (!holdsLeaderLock(this.leader)) {
       return { ok: false, message: "This engine instance is not the active trading leader; the order was not placed." };
     }

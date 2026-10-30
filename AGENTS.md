@@ -66,3 +66,7 @@ the behaviour it protects.
     process already holds fails and would null a live lock.
 19. Integration tests run against a dedicated database (`TEST_DATABASE_URL`, `phirst_test`)
     and skip honestly when it is unset. `scripts/test-db-setup.sh` creates and migrates it.
+20. The engine re-verifies broker connectivity on a throttled interval while running. A lost
+    connection blocks new orders and raises a critical alert, but settlement continues so open
+    contracts still resolve. On recovery the engine reconciles positions and pending orders
+    before resuming; it never resubmits an order with an uncertain outcome.
