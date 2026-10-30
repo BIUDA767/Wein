@@ -73,3 +73,13 @@ the behaviour it protects.
 21. Backups are written to a temporary name and renamed only after `pg_dump` exits cleanly, then
     verified with `gzip -t`. A partial dump must never be mistaken for a good one. A backup that
     has not been restored is not a backup; verify a restore before trusting one.
+22. Paper-trading state is durable. The simulator holds balance and open contracts in memory
+    only, so `BrokerManager` rebuilds it from the database on every adapter construction
+    (`paperRestoreState`): realized profit from settled orders, open contracts from open
+    orders. The live balance is starting balance + realized profit - stake still tied up in
+    open contracts. Without this a restart reset the balance and orphaned open contracts,
+    which could then never settle.
+23. An unknown contract is not a settled contract. `getOrder` returns `null` for a contract
+    the simulator does not know, so callers treat it as unresolved rather than a silent win.
+24. Settlement runs on the heartbeat as well as the tick, because a manual order can be placed
+    while the engine is stopped and an expired contract must still resolve.

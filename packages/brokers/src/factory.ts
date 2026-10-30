@@ -1,5 +1,5 @@
 import { DerivAdapter } from "./adapters/deriv.ts";
-import { PaperAdapter } from "./adapters/paper.ts";
+import { PaperAdapter, type PaperRestore } from "./adapters/paper.ts";
 import { BrokerError, type BrokerAdapter, type BrokerCredentials } from "./types.ts";
 import { getProvider } from "./providers.ts";
 
@@ -7,6 +7,7 @@ export interface CreateAdapterOptions {
   provider: string;
   credentials: BrokerCredentials;
   paperStartingBalance?: number;
+  paperRestore?: PaperRestore;
   log?: (msg: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -26,7 +27,7 @@ export function createAdapter(opts: CreateAdapterOptions): BrokerAdapter {
   if (opts.provider === "paper") {
     // Paper fills use the real public Deriv market data stream.
     const market = new DerivAdapter({ appId: opts.credentials.appId ?? "1089" }, opts.log);
-    return new PaperAdapter(market, opts.credentials, opts.paperStartingBalance ?? 10_000);
+    return new PaperAdapter(market, opts.credentials, opts.paperStartingBalance ?? 10_000, opts.paperRestore);
   }
   throw new BrokerError(`No adapter branch for ${opts.provider}`, "unsupported");
 }

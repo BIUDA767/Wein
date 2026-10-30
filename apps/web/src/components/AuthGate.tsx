@@ -89,7 +89,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              disabled={isSetup && username.length > 0 && state === "setup" ? false : false}
             />
           </div>
           <div className="mb-4">

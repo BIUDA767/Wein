@@ -1,4 +1,4 @@
-import { Vault, getActiveBroker, getBroker, listAccounts, getActiveAccount, type Logger, type BrokerRow, type Row } from "@phirst/core";
+import { Vault, getActiveBroker, getBroker, listAccounts, getActiveAccount, paperRestoreState, type Logger, type BrokerRow, type Row, type TradeMode } from "@phirst/core";
 import { createAdapter, type BrokerAdapter, type BrokerCredentials, BrokerError } from "@phirst/brokers";
 
 export interface ActiveBroker {
@@ -22,18 +22,26 @@ export class BrokerManager {
     return parsed;
   }
 
-  async buildAdapter(broker: BrokerRow, accountId?: string | null): Promise<BrokerAdapter> {
+  async buildAdapter(broker: BrokerRow, accountId?: string | null, mode: TradeMode = "paper"): Promise<BrokerAdapter> {
     const credentials = this.decodeCredentials(broker.credentials_enc);
     if (accountId) credentials.accountId = accountId;
+    // The paper simulator holds its balance and open contracts in memory, so it must be
+    // rebuilt from the database. Without this a restart would reset the balance and
+    // orphan open contracts, which could then never settle.
+    const paperRestore =
+      broker.provider === "paper"
+        ? await paperRestoreState(broker.id, accountId ?? "default", mode).catch(() => undefined)
+        : undefined;
     return createAdapter({
       provider: broker.provider,
       credentials,
       paperStartingBalance: this.paperStartingBalance,
+      paperRestore,
       log: (msg, fields) => this.log.debug(`broker:${broker.provider}`, { msg, ...fields }),
     });
   }
 
-  async loadActive(force = false): Promise<ActiveBroker | null> {
+  async loadActive(force = false, mode: TradeMode = "paper"): Promise<ActiveBroker | null> {
     if (this.cache && !force) return this.cache;
     const broker = await getActiveBroker();
     if (!broker) {
@@ -42,15 +50,15 @@ export class BrokerManager {
     }
     const account = await getActiveAccount();
     const accountId = account && account.broker_id === broker.id ? String(account.account_id) : null;
-    const adapter = await this.buildAdapter(broker, accountId);
+    const adapter = await this.buildAdapter(broker, accountId, mode);
     this.cache = { broker, account, adapter };
     return this.cache;
   }
 
-  async reload(): Promise<ActiveBroker | null> {
+  async reload(mode: TradeMode = "paper"): Promise<ActiveBroker | null> {
     await this.cache?.adapter.close?.();
     this.cache = null;
-    return this.loadActive(true);
+    return this.loadActive(true, mode);
   }
 
   async requireAdapter(): Promise<ActiveBroker> {

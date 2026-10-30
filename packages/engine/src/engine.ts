@@ -143,7 +143,7 @@ export class TradingEngine {
 
   private async refreshBroker(): Promise<void> {
     try {
-      this.active = await this.broker.reload();
+      this.active = await this.broker.reload(this.mode);
       if (!this.active) {
         this.brokerConnected = false;
         this.brokerError = "No active broker configured.";
@@ -276,12 +276,17 @@ export class TradingEngine {
    * A slow heartbeat that keeps account state current even while the engine is
    * stopped. Without it a stopped engine would report a stale zero equity, and the
    * companion would repeat that stale number.
+   *
+   * It also settles expired contracts. A manual order can be placed while the engine
+   * is stopped, and a contract that has expired must still resolve; otherwise it stays
+   * open forever and the books are wrong. Settlement never opens a new trade.
    */
   private startHeartbeat(): void {
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
       void (async () => {
         try {
+          await this.settleExpired();
           await this.refreshStats();
           await this.refreshPrice();
         } catch (err) {
@@ -289,6 +294,24 @@ export class TradingEngine {
         }
       })();
     }, 15_000);
+  }
+
+  /**
+   * Settle any expired contracts, regardless of running state. Runs on the heartbeat
+   * and on every tick. Safe to call concurrently: settlement only reads broker state
+   * and writes the final result, so a repeat settles nothing new.
+   */
+  private async settleExpired(): Promise<void> {
+    if (!this.active) return;
+    try {
+      const settled = await settleOpenOrders(this.execDeps());
+      if (settled.length > 0) {
+        this.opts.log.info("contracts settled", { count: settled.length });
+        await this.refreshStats();
+      }
+    } catch (err) {
+      this.opts.log.debug("settlement sweep failed", { error: (err as Error).message });
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -402,11 +425,7 @@ export class TradingEngine {
     const deps = this.execDeps();
 
     // 1. Settle expired contracts.
-    const settled = await settleOpenOrders(deps);
-    for (const s of settled) {
-      this.opts.log.info("contract settled", { orderId: s.orderId, profit: s.profit });
-    }
-    if (settled.length > 0) await this.refreshStats();
+    await this.settleExpired();
 
     // 2. Refresh account state and risk context, then re-verify connectivity. A lost
     //    connection blocks new trades but settlement continues, so open contracts still

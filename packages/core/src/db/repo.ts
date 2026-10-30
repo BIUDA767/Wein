@@ -367,6 +367,45 @@ export async function listEquity(mode: TradeMode, limit = 500): Promise<Row[]> {
   return query("SELECT * FROM equity_snapshots WHERE mode=$1 ORDER BY at DESC LIMIT $2", [mode, limit]);
 }
 
+/**
+ * Derive the state needed to rebuild the paper simulator after a restart. The database
+ * is the source of truth: realized profit comes from settled orders, and open contracts
+ * are rehydrated from open orders so they can still expire and settle.
+ */
+export async function paperRestoreState(
+  brokerId: string,
+  accountId: string,
+  mode: TradeMode,
+): Promise<{ realizedPnl: number; openPositions: Array<{ brokerOrderId: string; symbol: string; side: string; amount: number; entryPrice: number | null; expiryAt: number | null; openedAt: number }> }> {
+  const realized = await queryOne<{ pnl: string | null }>(
+    `SELECT COALESCE(SUM(profit),0)::text AS pnl FROM orders
+     WHERE broker_id=$1 AND account_id=$2 AND mode=$3 AND status='settled'`,
+    [brokerId, accountId, mode],
+  );
+  const rows = await query<Row>(
+    `SELECT broker_order_id, symbol, side, amount, fill_price, duration_sec, created_at FROM orders
+     WHERE broker_id=$1 AND account_id=$2 AND mode=$3 AND broker_order_id IS NOT NULL
+       AND status IN ('submitted','open','partially_filled')`,
+    [brokerId, accountId, mode],
+  );
+  return {
+    realizedPnl: Number(realized?.pnl ?? 0),
+    openPositions: rows.map((r) => {
+      const createdMs = new Date(String(r.created_at)).getTime();
+      const durationSec = toNum(r.duration_sec);
+      return {
+        brokerOrderId: String(r.broker_order_id),
+        symbol: String(r.symbol),
+        side: String(r.side),
+        amount: toNum(r.amount) ?? 0,
+        entryPrice: toNum(r.fill_price),
+        expiryAt: durationSec !== null ? createdMs + durationSec * 1000 : null,
+        openedAt: createdMs,
+      };
+    }),
+  };
+}
+
 export async function dailyRealizedPnl(mode: TradeMode, since: Date): Promise<number> {
   const row = await queryOne<{ pnl: string | null }>(
     `SELECT COALESCE(SUM(profit),0)::text AS pnl FROM orders

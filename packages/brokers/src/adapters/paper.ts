@@ -24,6 +24,25 @@ export interface PaperPosition extends BrokerPosition {
 }
 
 /**
+ * Persisted state used to rebuild the simulator after a restart. The database is the
+ * source of truth for paper trading: without this, a restart would reset the balance
+ * and orphan every open contract, leaving orders that could never settle.
+ */
+export interface PaperRestore {
+  /** Sum of profit across settled paper orders. */
+  realizedPnl: number;
+  openPositions: Array<{
+    brokerOrderId: string;
+    symbol: string;
+    side: string;
+    amount: number;
+    entryPrice: number | null;
+    expiryAt: number | null;
+    openedAt: number;
+  }>;
+}
+
+/**
  * Paper trading adapter.
  *
  * This is explicitly an internal simulator. It is NOT a broker connection and is
@@ -43,9 +62,36 @@ export class PaperAdapter implements BrokerAdapter {
   constructor(
     private readonly marketData: PaperMarketData,
     creds: BrokerCredentials,
-    startingBalance: number,
+    private readonly startingBalance: number,
+    restore?: PaperRestore,
   ) {
     this.balance = startingBalance;
+    if (restore) this.applyRestore(restore);
+  }
+
+  /**
+   * Rebuild balance and open positions from persisted state. The stake is deducted while
+   * a contract is open, so the live balance is the starting balance plus realized profit
+   * minus the stake still tied up in open contracts.
+   */
+  private applyRestore(restore: PaperRestore): void {
+    const openStake = restore.openPositions.reduce((a, p) => a + p.amount, 0);
+    this.balance = Number((this.startingBalance + restore.realizedPnl - openStake).toFixed(2));
+    for (const p of restore.openPositions) {
+      this.positions.set(p.brokerOrderId, {
+        brokerPositionId: p.brokerOrderId,
+        symbol: p.symbol,
+        side: p.side as "buy" | "sell",
+        size: p.amount,
+        entryPrice: p.entryPrice,
+        currentPrice: p.entryPrice,
+        unrealizedPnl: 0,
+        openedAt: p.openedAt,
+        expiryAt: p.expiryAt,
+        contractType: p.side === "buy" ? "CALL" : "PUT",
+        stake: p.amount,
+      });
+    }
   }
 
   capabilities(): BrokerCapabilities {
@@ -154,7 +200,7 @@ export class PaperAdapter implements BrokerAdapter {
 
   async getOrder(brokerOrderId: string): Promise<{ status: OrderStatus; profit: number | null; fillPrice: number | null; payout: number | null } | null> {
     const pos = this.positions.get(brokerOrderId);
-    if (!pos) return { status: "settled", profit: null, fillPrice: null, payout: null };
+    if (!pos) return null;
     const quote = await this.marketData.getQuote(pos.symbol);
     const entry = pos.entryPrice ?? quote.mid;
     const won = pos.contractType === "CALL" ? quote.mid > entry : quote.mid < entry;

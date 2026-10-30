@@ -69,3 +69,76 @@ maybe("database integration", () => {
     expect(open.find((o) => o.id === id)).toBeUndefined();
   });
 });
+
+/**
+ * Paper simulator durability. The simulator holds balance and open contracts in memory,
+ * so it must be rebuilt from the database on restart. Without this a restart resets the
+ * balance and orphans open contracts, which can then never settle.
+ */
+maybe("paper simulator restore", () => {
+  let core: typeof import("@phirst/core");
+  let brokers: typeof import("@phirst/brokers");
+  const START = 10_000;
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = dsn;
+    core = await import("@phirst/core");
+    brokers = await import("@phirst/brokers");
+  });
+
+  afterAll(async () => {
+    await core.closePool().catch(() => {});
+  });
+
+  it("rebuilds balance and open contracts from settled and open orders", async () => {
+    const broker = await core.createBroker({
+      provider: "paper",
+      label: "Restore test broker",
+      credentialsEnc: new core.Vault(core.loadConfig().masterKey).encrypt("{}"),
+      fingerprint: `restore-${Date.now()}`,
+      capabilities: {},
+    });
+    const accountId = "paper:restore";
+    await core.upsertAccount(broker.id, { id: accountId, type: "demo", currency: "USD", balance: START });
+
+    // One settled winner (+50) and one settled loser (-20) => realized +30.
+    for (const [profit, status] of [[50, "settled"], [-20, "settled"]] as const) {
+      const id = await core.insertOrder({
+        brokerId: broker.id, accountId, symbol: "R_100", side: "buy", orderType: "fixed_expiry",
+        amount: 10, durationSec: 60, mode: "paper", strategyId: null, origin: "manual",
+        clientRef: `restore-settled-${profit}-${Date.now()}`,
+      });
+      await core.updateOrder(id, { status, profit, settledAt: new Date().toISOString() });
+    }
+    // One open contract with 25 still at stake.
+    await core.insertOrder({
+      brokerId: broker.id, accountId, symbol: "R_100", side: "buy", orderType: "fixed_expiry",
+      amount: 25, durationSec: 60, mode: "paper", strategyId: null, origin: "manual",
+      clientRef: `restore-open-${Date.now()}`,
+    });
+    const openRow = await core.getPool().query(
+      "SELECT id FROM orders WHERE broker_id=$1 AND account_id=$2 AND status='pending' LIMIT 1",
+      [broker.id, accountId],
+    );
+    await core.updateOrder(String(openRow.rows[0].id), { status: "open", brokerOrderId: "paper-open-1", fillPrice: 100 });
+
+    const restore = await core.paperRestoreState(broker.id, accountId, "paper");
+    expect(restore.realizedPnl).toBe(30);
+    expect(restore.openPositions).toHaveLength(1);
+    expect(restore.openPositions[0].amount).toBe(25);
+
+    // The adapter rebuilt from this state must deduct the stake still tied up.
+    const adapter = brokers.createAdapter({
+      provider: "paper",
+      credentials: {},
+      paperStartingBalance: START,
+      paperRestore: restore,
+    });
+    const balance = await adapter.getBalance(accountId);
+    expect(balance).toBe(START + 30 - 25);
+
+    const positions = await adapter.getPositions();
+    expect(positions).toHaveLength(1);
+    expect(positions[0].brokerPositionId).toBe("paper-open-1");
+  });
+});
