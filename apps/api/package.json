@@ -1,0 +1,7 @@
+{
+  "name": "@phirst/api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": { "@phirst/core": "*", "@phirst/brokers": "*", "@phirst/ai": "*", "@phirst/engine": "*" }
+}

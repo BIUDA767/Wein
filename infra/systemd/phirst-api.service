@@ -1,0 +1,26 @@
+# PHIRST2 backend: REST API, WebSocket feed, trading engine, Telegram bot.
+# The engine runs inside this process so a single writer owns order placement;
+# an advisory database lock guarantees no second instance can trade.
+[Unit]
+Description=PHIRST2 backend (API + trading engine)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phirst
+WorkingDirectory=/opt/phirst2
+EnvironmentFile=/opt/phirst2/.env
+ExecStart=/usr/bin/npx tsx apps/api/src/index.ts
+Restart=always
+RestartSec=5
+# Give up if it crash-loops; a supervisor should alert on this.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

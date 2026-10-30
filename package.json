@@ -1,0 +1,37 @@
+{
+  "name": "phirst2",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PHIRST2 - autonomous multi-broker trading platform",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run typecheck && npm run test",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "dev:api": "tsx watch apps/api/src/index.ts",
+    "dev:web": "npm run dev -w @phirst/web",
+    "start:api": "tsx apps/api/src/index.ts",
+    "start:web": "npm run start -w @phirst/web",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

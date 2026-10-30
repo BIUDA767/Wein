@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@phirst/core": ["packages/core/src/index.ts"],
+      "@phirst/brokers": ["packages/brokers/src/index.ts"],
+      "@phirst/ai": ["packages/ai/src/index.ts"],
+      "@phirst/engine": ["packages/engine/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "apps/api/src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "**/dist", "apps/web"]
+}

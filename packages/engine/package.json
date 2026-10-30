@@ -1,0 +1,8 @@
+{
+  "name": "@phirst/engine",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@phirst/core": "*", "@phirst/brokers": "*", "@phirst/ai": "*" }
+}

@@ -1,0 +1,22 @@
+# PHIRST2 frontend. Serves the built Next.js app; it holds no trading state.
+[Unit]
+Description=PHIRST2 web frontend
+After=network-online.target phirst-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phirst
+WorkingDirectory=/opt/phirst2/apps/web
+EnvironmentFile=/opt/phirst2/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx next start -p 12000 -H 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
