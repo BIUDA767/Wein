@@ -48,30 +48,37 @@ export function OrderSheet({
 
   return (
     <Sheet open={side !== null} title={side === "buy" ? `Buy ${symbol}` : `Sell ${symbol}`} onClose={onClose}>
-      <div className="mb-4">
+      <div className="mb-5">
         <label className="label">Trade amount</label>
-        <input className="field mono-num" inputMode="decimal" value={amount} onChange={(e) => onAmount(e.target.value)} />
+        <div className="relative">
+          <input className="field mono-num pr-12 text-[17px] font-semibold" inputMode="decimal" value={amount} onChange={(e) => onAmount(e.target.value)} />
+          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[12px] font-medium text-white/35">USD</span>
+        </div>
         <div className="mt-2 flex gap-1.5">
           {[10, 25, 50, 100].map((v) => (
-            <button key={v} className="chip" onClick={() => onAmount(String(v))}>{v}</button>
+            <button key={v} className={`chip flex-1 justify-center ${amount === String(v) ? "chip-active" : ""}`} onClick={() => onAmount(String(v))}>
+              {v}
+            </button>
           ))}
         </div>
         {risk && (
-          <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+          <p className="mt-2.5 text-[11px] leading-relaxed text-white/35">
             Risk per trade {(risk.riskPerTrade * 100).toFixed(2)}% · per-trade ceiling {money(risk.maxTradeAmount)}. The risk engine may reduce this amount.
           </p>
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-5">
         <label className="label">Duration (seconds)</label>
-        <input className="field mono-num" inputMode="numeric" value={duration} onChange={(e) => onDuration(e.target.value)} />
+        <input className="field mono-num text-[17px] font-semibold" inputMode="numeric" value={duration} onChange={(e) => onDuration(e.target.value)} />
         <div className="mt-2 flex gap-1.5">
           {presets.map((v) => (
-            <button key={v} className="chip" onClick={() => onDuration(String(v))}>{v}s</button>
+            <button key={v} className={`chip flex-1 justify-center ${duration === String(v) ? "chip-active" : ""}`} onClick={() => onDuration(String(v))}>
+              {v}s
+            </button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+        <p className="mt-2.5 text-[11px] leading-relaxed text-white/35">
           {caps?.minExpirySec
             ? `The active broker enforces a minimum expiry of ${caps.minExpirySec}s. Orders below it are refused rather than adjusted silently.`
             : "The active broker does not publish a minimum expiry. Orders are submitted as requested."}
@@ -79,7 +86,23 @@ export function OrderSheet({
         </p>
       </div>
 
-      <button className={side === "buy" ? "btn-primary w-full py-4" : "btn-danger w-full py-4"} onClick={onSubmit} disabled={busy}>
+      {/* Order summary: restates exactly what will be sent, before it is sent. */}
+      <div className="tile mb-4 px-4 py-3">
+        <div className="flex items-center justify-between py-1 text-[12.5px]">
+          <span className="text-white/45">Instrument</span>
+          <span className="mono-num font-semibold text-white">{symbol}</span>
+        </div>
+        <div className="flex items-center justify-between py-1 text-[12.5px]">
+          <span className="text-white/45">Direction</span>
+          <span className={`font-semibold ${side === "buy" ? "text-emerald-400" : "text-ruby-400"}`}>{side === "buy" ? "Buy" : "Sell"}</span>
+        </div>
+        <div className="flex items-center justify-between border-t border-white/6 py-1 pt-2 text-[12.5px]">
+          <span className="text-white/45">Stake · duration</span>
+          <span className="mono-num font-semibold text-white">{money(Number(amount) || 0)} · {duration}s</span>
+        </div>
+      </div>
+
+      <button className={side === "buy" ? "btn-buy w-full" : "btn-sell w-full"} onClick={onSubmit} disabled={busy}>
         {busy ? <Spinner /> : `${side === "buy" ? "Buy" : "Sell"} ${symbol}`}
       </button>
       <p className="mt-3 text-center text-[11px] leading-relaxed text-white/30">
