@@ -104,12 +104,24 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-[100dvh] flex-col items-center justify-center px-6 py-10">
       <div className="w-full max-w-[380px] animate-fade-up">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center">
+          <div className="relative mx-auto mb-4 flex h-16 w-16 items-center justify-center">
+            {/* A soft champagne halo grounds the crystal against the dark field. */}
+            <div
+              className="pointer-events-none absolute inset-[-26px] rounded-full"
+              style={{ background: "radial-gradient(circle, rgba(212,175,55,0.16) 0%, rgba(166,175,186,0.05) 45%, transparent 70%)" }}
+            />
             <Emblem size={64} glow />
           </div>
-          <h1 className="font-display text-[30px] tracking-[0.18em] text-white">WEIN</h1>
+          <h1 className="font-display text-[30px] tracking-[0.18em] text-white"
+            style={{ textShadow: "0 2px 18px rgba(212,175,55,0.18)" }}
+          >
+            WEIN
+          </h1>
           <p className="mt-1 text-[13px] text-white/40" lang="ja">ワイン</p>
-          <p className="mt-2 text-[12.5px] text-white/45">
+          <div className="mx-auto mt-3 h-px w-24"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(212,175,55,0.45), transparent)" }}
+          />
+          <p className="mt-3 text-[12.5px] text-white/45">
             {isSetup
               ? "Create the owner account to begin."
               : isRegister

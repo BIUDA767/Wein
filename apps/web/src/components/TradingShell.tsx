@@ -358,23 +358,26 @@ export function TradingShell() {
           <section className="mb-3">
             <button
               onClick={() => { tap(); setAssetSheetOpen(true); }}
-              className="flex w-full items-center justify-between rounded-2xl border tile px-3.5 py-3 text-left active:scale-[0.99]"
+              className="glass flex w-full items-center justify-between px-4 py-3.5 text-left transition active:scale-[0.995]"
             >
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[15px] font-semibold text-white">{symbol}</span>
+                  <span className="font-display text-[16px] tracking-[0.02em] text-white">{symbol}</span>
                   <span className="text-[12px] text-white/40">{symbolName}</span>
                 </div>
-                <div className="mt-0.5 text-[11px] text-white/35">
-                  {engine?.updatedAt ? `Updated ${timeAgo(engine.updatedAt)}` : "Awaiting data"}
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/35">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80" />
+                  {engine?.updatedAt ? `Live · updated ${timeAgo(engine.updatedAt)}` : "Awaiting data"}
                 </div>
               </div>
               <div className="text-right">
-                <div className="mono-num font-display text-[24px] leading-none tracking-tight text-white">
+                <div className="mono-num font-display text-[28px] leading-none tracking-tight text-white">
                   {price === null ? "—" : money(price)}
                 </div>
                 {change !== null && (
-                  <div className={`mono-num mt-1 text-[12px] font-semibold ${change >= 0 ? "text-emerald-400" : "text-ruby-400"}`}>
+                  <div className={`mono-num mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold ${
+                    change >= 0 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-ruby-500/30 bg-ruby-500/10 text-ruby-400"
+                  }`}>
                     {change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(3)}%
                   </div>
                 )}
@@ -387,7 +390,9 @@ export function TradingShell() {
               <button
                 key={t}
                 onClick={() => { tap(); setTab(t); }}
-                className={`flex-1 rounded-xl px-3 py-2 text-[12.5px] font-semibold capitalize transition ${tab === t ? "bg-white/10 text-white" : "text-white/45"}`}
+                className={`flex-1 rounded-xl px-3 py-2 text-[12.5px] font-semibold capitalize transition ${
+                  tab === t ? "tile-active text-champagne-300" : "text-white/45 hover:text-white/70"
+                }`}
               >
                 {t}
               </button>
@@ -434,18 +439,18 @@ export function TradingShell() {
 
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <button
-                  className="btn-primary py-4 text-[16px]"
+                  className="btn-buy"
                   onClick={() => { tap(); setOrderSheet("buy"); }}
                   disabled={!engine}
                 >
-                  Buy
+                  <span className="text-[13px] opacity-80">▲</span> Buy
                 </button>
                 <button
-                  className="btn-danger py-4 text-[16px]"
+                  className="btn-sell"
                   onClick={() => { tap(); setOrderSheet("sell"); }}
                   disabled={!engine}
                 >
-                  Sell
+                  <span className="text-[13px] opacity-80">▼</span> Sell
                 </button>
               </div>
             </>

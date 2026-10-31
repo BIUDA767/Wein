@@ -10,7 +10,8 @@ export function Card({ children, className = "", raised = false }: { children: R
 export function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between">
-      <h2 className="text-[13px] font-semibold uppercase text-white/50" style={{ letterSpacing: "0.14em" }}>
+      <h2 className="flex items-center gap-2 text-[13px] font-semibold uppercase text-white/55" style={{ letterSpacing: "0.14em" }}>
+        <span className="h-3 w-[2px] rounded-full" style={{ background: "linear-gradient(180deg, #E8CE7A, rgba(212,175,55,0.25))" }} />
         {children}
       </h2>
       {action}
@@ -20,7 +21,7 @@ export function SectionTitle({ children, action }: { children: React.ReactNode; 
 
 export function Pill({ tone = "neutral", children }: { tone?: "neutral" | "good" | "bad" | "warn" | "gold"; children: React.ReactNode }) {
   const tones: Record<string, string> = {
-    neutral: "border-white/12 bg-white/5 text-white/70",
+    neutral: "tile text-white/70",
     good: "border-emerald-500/40 bg-emerald-500/12 text-emerald-400",
     bad: "border-ruby-500/40 bg-ruby-500/12 text-ruby-400",
     warn: "border-amber-400/40 bg-amber-400/12 text-amber-300",
@@ -51,7 +52,7 @@ export function Toast({ message, tone = "neutral", onDone }: { message: string; 
     warn: "border-amber-400/40 bg-amber-950/90",
   };
   return (
-    <div className={`fixed inset-x-0 top-3 z-[70] mx-auto w-[calc(100%-24px)] max-w-[460px] animate-fade-up rounded-2xl border px-4 py-3 text-[13px] leading-snug backdrop-blur-xl ${tones[tone]}`}>
+    <div className={`fixed inset-x-0 top-3 z-[70] mx-auto w-[calc(100%-24px)] max-w-[460px] animate-fade-up rounded-2xl border px-4 py-3 text-[13px] leading-snug shadow-glass backdrop-blur-xl ${tones[tone]}`}>
       {message}
     </div>
   );
@@ -128,8 +129,10 @@ export function Spinner({ size = 16 }: { size?: number }) {
 
 export function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center">
-      <Emblem size={26} className="mx-auto mb-2.5 opacity-40" />
+    <div className="rounded-2xl border border-dashed border-white/12 px-4 py-6 text-center"
+      style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0) 100%)" }}
+    >
+      <Emblem size={26} className="mx-auto mb-2.5 opacity-45" />
       <div className="text-[13px] font-medium text-white/70">{title}</div>
       <div className="mt-1 text-[12px] leading-relaxed text-white/40">{body}</div>
     </div>
