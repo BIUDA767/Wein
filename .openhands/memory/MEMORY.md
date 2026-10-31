@@ -121,4 +121,18 @@ Concise index of durable facts. Detail lives in the daily logs.
 - **`npm run start:api` does not read `.env`** — `set -a; . ./.env; set +a` first, or env
   edits silently no-op. This wasted a cycle; remember it.
 - `DERIV_APP_ID=1089` is Deriv's public example id; it yields 401 "Invalid application" for
-  both PAT and OAuth until a real app is registered under the token's Deriv account.
+  both PAT and OAuth. Replaced by a registered app id (`34PCV510XlKxHZvUQZjXa`, also the
+  OAuth `client_id` — Deriv issues them as the same value).
+
+## Session 2026-10-31 (later still) — Deriv live-order path fixed (see log)
+- Three defects only visible against the real API, each silently blocking live trading:
+  1. Deriv returns **money as strings** (`"10000.00"`); `typeof === "number"` guards made
+     every balance / fill / profit `null`. Fixed with `toNumber()`.
+  2. The OTP socket is `data.url`, not `ws_url`/`wsUrl` (`resolveTradingWsUrl`).
+  3. Orders need `underlying_symbol` (not `symbol`); tick expiries cap at **10 ticks**,
+     intraday from **15s**. Duration is measured per symbol (`R_100`=2s/tick,
+     `1HZ100V`=1s/tick) and the accepted expiry is stored on the order.
+- Verified live on demo `DOT94980040`: 10s R_100 contract placed, settled, profit read back.
+- `corvex.fun` is a Vercel deployment returning `451 DEPLOYMENT_DISABLED` — not this app.
+- Suite **218 tests / 18 files**; `tests/deriv-adapter.test.ts` guards the three defects.
+  AGENTS.md invariants 65–69 added.

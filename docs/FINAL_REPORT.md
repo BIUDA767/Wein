@@ -98,8 +98,9 @@ only where the provider genuinely supports it (Deriv and Paper); it is not claim
     Deriv exactly). Then "Connect Deriv" completes the PKCE flow in-app.
   - **Personal Access Token**: generate a PAT in Deriv and set `DERIV_APP_ID` to the app id
     registered for that token, then connect with the PAT.
-  The placeholder `DERIV_APP_ID=1089` is Deriv's public example id; it is rejected with
-  `401 "Invalid application"` for both paths until a real app id is registered.
+  An app id is now configured, and the order path is verified end to end against a Deriv demo
+  account. Live (real-money) trading additionally needs the account itself to be funded and
+  explicitly activated by the owner.
 - **Gemini**: `GEMINI_API_KEY`. Without it the companion reports measured facts only and does not
   invent analysis.
 - **Telegram**: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_IDS`.
@@ -108,7 +109,8 @@ only where the provider genuinely supports it (Deriv and Paper); it is not claim
 
 ## Known limitations
 
-- Live trading has not been enabled or verified against a real-money account.
+- Live trading has not been enabled against a real-money account; the order path is verified on
+  Deriv's demo environment only.
 - The AI companion runs on Gemini only; no other provider is wired in.
 - The avatar is an animated vector figure with speech-synchronised mouth movement, not a photoreal
   rendered human.

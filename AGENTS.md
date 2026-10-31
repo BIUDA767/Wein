@@ -239,3 +239,17 @@ the behaviour it protects.
 64. The chart renders only candles the API returned. When the feed is disconnected it draws
     axes and a connection notice and no price series — it never synthesises candles to keep
     the panel looking alive.
+65. Deriv serialises every money field (balance, fill price, payout, profit) as a decimal
+    *string*. The adapter coerces through `toNumber` and never falls back to `0` for a
+    missing value, so a settled loss and an unknown result stay distinguishable.
+66. The authenticated trading socket comes from the OTP endpoint's `data.url`
+    (`resolveTradingWsUrl`), not `ws_url`/`wsUrl`. Reading the wrong field left the socket
+    closed and silently blocked every live order.
+67. A Deriv order names the instrument `underlying_symbol`; `symbol` is rejected outright.
+68. Deriv offers tick expiries only up to 10 ticks, and intraday expiries from 15s. The
+    adapter measures each symbol's real tick interval from Deriv's own tick history and
+    sends ticks inside the ceiling or a seconds contract beyond it. The expiry the provider
+    actually accepted is written back to the order (`ExecutionResult.effectiveDurationSec`),
+    so the UI never shows a duration that was not placed.
+69. The paper simulator's market feed is the public Deriv socket and needs no app id; the
+    adapter is built without one rather than falling back to a placeholder id.
