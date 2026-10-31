@@ -99,6 +99,20 @@ Concise index of durable facts. Detail lives in the daily logs.
 - Awaiting `DERIV_OAUTH_CLIENT_ID` + `DERIV_OAUTH_REDIRECT_URI` in the Deriv dashboard; the
   button reports "setup needed" until then rather than pretending to work.
 
+## Session 2026-10-31 (later still) — terminal surfaces made real (see log)
+- Header balance is now the broker-reported figure for the **selected** account
+  (`useActiveAccount` → `/api/accounts/active`). loading / no-account / error / ready are
+  distinct states; a failed fetch renders "—", never `0.00` (invariant 61).
+- `Terminal.tsx`: AccountBalance + AccountSheet (one-tap switch, 409 → confirm), Watchlist
+  (5 s quote poll), AlertsPanel. New `routes/workspace.ts` (watchlist + one-shot alerts),
+  `/api/market/quote`, `/api/accounts/active`, `/api/brokers/active`, `engine.quote()`.
+- **Deriv feed quotes synthetics + crypto, not forex/gold** — `frxEURUSD`/`frxXAUUSD` give
+  `null`. The UI says "quote unavailable"; do not invent a price.
+- **Root tsconfig excludes `apps/web`**, so `npm run typecheck` does not cover the web app.
+  Always `NODE_ENV=production npm run build -w @phirst/web`. Launch `next start` from
+  `apps/web` (root cwd → "next: not found").
+- AGENTS.md invariants 61–64 added.
+
 ## Sandbox access (for handing the build to the owner)
 - Public link: `https://work-1-kznopodrculyuhfn.prod-runtime.all-hands.dev/` (work-1 = web app;
   work-2 = raw API, root 404). Owner login `baelay` / password created via `/api/auth/setup`.
