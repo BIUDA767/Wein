@@ -131,7 +131,7 @@ export function AssetSheet({
                   onClick={() => onSelect(i.symbol)}
                   disabled={!i.tradeable}
                   className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.99] ${
-                    i.symbol === current ? "border-emerald-500/45 bg-emerald-500/10" : "border-white/8 bg-white/3"
+                    i.symbol === current ? "tile-active" : "tile tile-hover"
                   } ${!i.tradeable ? "opacity-40" : ""}`}
                 >
                   <div>
@@ -226,7 +226,7 @@ export function PhirstConsole({
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
         {chatLog.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-white/10 px-4 py-5 text-center text-[12.5px] leading-relaxed text-white/40">
+          <div className="rounded-2xl border border-dashed border-white/12 px-4 py-5 text-center text-[12.5px] leading-relaxed text-white/45">
             Ask about your account, risk, positions or market state. PHIRST2 only reports measured facts and labels its own opinion as opinion.
           </div>
         )}
@@ -234,7 +234,7 @@ export function PhirstConsole({
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               className={`max-w-[82%] rounded-3xl px-4 py-2.5 text-[13.5px] leading-relaxed ${
-                m.role === "user" ? "bg-emerald-500/18 text-white" : "border border-white/10 bg-white/5 text-white/90"
+                m.role === "user" ? "bg-emerald-500/18 text-white" : "tile text-white/90"
               }`}
             >
               {m.text}
@@ -248,7 +248,7 @@ export function PhirstConsole({
         ))}
         {busy && (
           <div className="flex justify-start">
-            <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-2.5">
+            <div className="rounded-3xl border tile px-4 py-2.5">
               <Spinner size={14} />
             </div>
           </div>

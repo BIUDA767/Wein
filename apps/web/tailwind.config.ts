@@ -26,6 +26,8 @@ const config: Config = {
         ruby: { 400: "#FF6B62", 500: "#FF3B30", 600: "#D92B21" },
         // Gold detailing -> specified gold.
         champagne: { 300: "#E8CE7A", 400: "#DFC25A", 500: "#D4AF37", 600: "#A98A2B" },
+        // Metallic silver: structural detailing, edges and the crystal emblem.
+        silver: { 100: "#F2F5F8", 200: "#DDE3E9", 300: "#C3CBD4", 400: "#A6AFBA", 500: "#8A939F", 600: "#6C7481" },
         // Restrained cyan for PHIRST2 only.
         cyan: { 300: "#7FF0FF", 400: "#3DDCFF", 500: "#00C2E0", 600: "#0092AA" },
         muted: "#A0A0A5",
@@ -45,6 +47,13 @@ const config: Config = {
         rubyglow: "0 0 24px rgba(255,59,48,0.25)",
         cyanglow: "0 0 22px rgba(61,220,255,0.35)",
         goldglow: "0 0 22px rgba(212,175,55,0.28)",
+        silverglow: "0 0 20px rgba(198,208,219,0.18)",
+        // Metallic top edge: a thin specular line that reads as brushed metal.
+        edge: "inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -1px 0 rgba(0,0,0,0.35)",
+      },
+      backgroundImage: {
+        "metal-sheen":
+          "linear-gradient(180deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.012) 38%, rgba(0,0,0,0.10) 100%)",
       },
       backdropBlur: { xs: "2px" },
       keyframes: {

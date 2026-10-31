@@ -51,7 +51,7 @@ export function Panels({ app, perf, onRefresh }: { app: AppState; perf: Performa
         <button
           key={p.key}
           onClick={() => setOpen(p.key)}
-          className="flex w-full items-center justify-between rounded-2xl border border-white/8 bg-white/3 px-4 py-3.5 text-left active:scale-[0.99]"
+          className="flex w-full items-center justify-between rounded-2xl border tile px-4 py-3.5 text-left active:scale-[0.99]"
         >
           <div>
             <div className="text-[14px] font-medium text-white">{p.label}</div>
@@ -492,7 +492,7 @@ function BrokerPanel({ app }: { app: AppState }) {
           </div>
 
           {spec && (
-            <div className="mb-3 rounded-2xl border border-white/8 bg-white/3 px-3 py-2.5 text-[11.5px] leading-relaxed text-white/50">
+            <div className="mb-3 rounded-2xl border tile px-3 py-2.5 text-[11.5px] leading-relaxed text-white/50">
               <div className="mb-1 flex items-center gap-2">
                 <Pill tone={spec.implemented ? "good" : "warn"}>{spec.implemented ? "adapter ready" : "no adapter yet"}</Pill>
                 {spec.fiveSecondExpiry && <Pill tone="good">5-second expiry</Pill>}
@@ -887,7 +887,7 @@ function PhirstPanel({ app, perf }: { app: AppState; perf: PerformanceReport | n
         <EmptyState title="No stored memory" body="Notes you add here are available to PHIRST2 when it answers." />
       ) : (
         memory.map((m) => (
-          <div key={m.id} className="mb-2 flex items-start justify-between gap-3 rounded-2xl border border-white/8 bg-white/3 px-3.5 py-2.5">
+          <div key={m.id} className="mb-2 flex items-start justify-between gap-3 rounded-2xl border tile px-3.5 py-2.5">
             <div>
               <div className="text-[12.5px] leading-relaxed text-white/80">{m.content}</div>
               <div className="mt-1 text-[10.5px] text-white/30">importance {m.importance} · {m.source}</div>
@@ -1068,7 +1068,7 @@ function VoicePanel({ app }: { app: AppState }) {
       </div>
 
       <button className="btn-ghost w-full" onClick={test}>Test voice on this device</button>
-      {probe && <div className="rounded-2xl border border-white/10 bg-white/4 px-3.5 py-3 text-[11.5px] leading-relaxed text-white/60">{probe}</div>}
+      {probe && <div className="rounded-2xl border tile px-3.5 py-3 text-[11.5px] leading-relaxed text-white/60">{probe}</div>}
       {busy && <div className="text-center text-[11px] text-white/35">Saving…</div>}
     </div>
   );
@@ -1128,7 +1128,7 @@ function NotificationPanel({ app }: { app: AppState }) {
         <EmptyState title="No notifications" body="Alerts appear here when a real trigger fires." />
       ) : (
         all.map((n) => (
-          <div key={n.id} className={`mb-2 rounded-2xl border px-3.5 py-3 ${n.read_at ? "border-white/8 bg-white/2" : "border-white/12 bg-white/5"}`}>
+          <div key={n.id} className={`mb-2 rounded-2xl border px-3.5 py-3 ${n.read_at ? "border-white/6 bg-white/[0.015]" : "tile"}`}>
             <div className="mb-1 flex items-center justify-between gap-2">
               <Pill tone={toneFor(n.severity)}>{n.severity}</Pill>
               <span className="text-[10.5px] text-white/30">{new Date(n.created_at).toLocaleString()}</span>

@@ -69,7 +69,10 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
     <div className="fixed inset-0 z-[60]">
       <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={onClose} />
       <div className="sheet safe-bottom flex max-h-[92dvh] flex-col">
-        <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+        <div className="pt-2.5">
+          <div className="sheet-grab" />
+        </div>
+        <div className="flex items-center justify-between border-b border-white/8 px-5 pb-4 pt-1">
           <h3 className="text-[16px] font-semibold text-white">{title}</h3>
           <button onClick={onClose} className="rounded-full border border-white/12 px-3 py-1 text-[12px] text-white/70 active:scale-95" aria-label="Close">
             Done

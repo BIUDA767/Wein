@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, type AvatarState } from "./Avatar";
 import { Emblem } from "./Emblem";
+import { NavIcon } from "./NavIcons";
 import { Chart, type ChartStyle, type IndicatorKey } from "./Chart";
 import { Card, ConfirmDialog, Dot, EmptyState, Pill, Row, SectionTitle, Sheet, Spinner, Toast } from "./ui";
 import { api, ApiFailure, type Candle, type ChatReply, type EngineStatus, type OrderRecord, type PerformanceReport, type PositionRecord } from "@/lib/api";
@@ -294,7 +295,13 @@ export function TradingShell() {
         <Toast key={t.id} message={t.text} tone={t.tone} onDone={() => dismissToast(t.id)} />
       ))}
 
-      <header className="safe-top sticky top-0 z-40 border-b border-white/6 bg-ink-950/85 px-4 pb-3 backdrop-blur-xl">
+      <header className="safe-top sticky top-0 z-40 px-4 pb-3 backdrop-blur-xl"
+        style={{
+          background: "linear-gradient(180deg, rgba(10,10,11,0.92) 0%, rgba(10,10,11,0.82) 100%)",
+          borderBottom: "1px solid transparent",
+          borderImage: "linear-gradient(90deg, transparent, rgba(166,175,186,0.22) 22%, rgba(212,175,55,0.30) 50%, rgba(166,175,186,0.22) 78%, transparent) 1",
+        }}
+      >
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2.5">
             <Emblem size={30} className="shrink-0 drop-shadow-[0_2px_6px_rgba(212,175,55,0.25)]" />
@@ -319,7 +326,7 @@ export function TradingShell() {
             {!connected && <Pill tone="bad"><Dot tone="bad" pulse />offline</Pill>}
             <button
               onClick={() => { tap(); setPanelsOpen(true); }}
-              className="rounded-full border border-white/12 bg-white/5 p-2 active:scale-95"
+              className="rounded-full border border-white/12 bg-gradient-to-b from-white/8 to-white/3 p-2 shadow-edge active:scale-95"
               aria-label="Open controls"
             >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="text-white/80">
@@ -331,7 +338,9 @@ export function TradingShell() {
 
         <div className={`mt-3 grid gap-2 ${kpiTiles.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
           {kpiTiles.map((t) => (
-            <div key={t.key} className="rounded-2xl border border-white/7 bg-white/3 px-2.5 py-2">
+            <div key={t.key} className="rounded-2xl border border-white/7 px-2.5 py-2 shadow-edge"
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.012) 100%)" }}
+            >
               <div className="kpi-label">{t.label}</div>
               <div className={`mono-num text-[15px] font-semibold ${t.tone === "good" ? "text-emerald-400" : t.tone === "bad" ? "text-ruby-400" : "text-white"}`}>
                 {t.value}
@@ -349,7 +358,7 @@ export function TradingShell() {
           <section className="mb-3">
             <button
               onClick={() => { tap(); setAssetSheetOpen(true); }}
-              className="flex w-full items-center justify-between rounded-2xl border border-white/8 bg-white/3 px-3.5 py-3 text-left active:scale-[0.99]"
+              className="flex w-full items-center justify-between rounded-2xl border tile px-3.5 py-3 text-left active:scale-[0.99]"
             >
               <div>
                 <div className="flex items-center gap-2">
@@ -373,7 +382,7 @@ export function TradingShell() {
             </button>
           </section>
 
-          <div className="mb-3 flex rounded-2xl border border-white/8 bg-white/3 p-1">
+          <div className="mb-3 flex rounded-2xl border tile p-1">
             {(["trade", "positions", "history"] as const).map((t) => (
               <button
                 key={t}
@@ -613,7 +622,7 @@ export function TradingShell() {
       </main>
 
       {/* iPhone-style bottom tab bar. Every item performs a real navigation. */}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-white/8 bg-ink-950/92 backdrop-blur-xl">
+      <nav className="tabbar z-40">
         <div className="mx-auto flex max-w-[1180px] items-stretch">
           {([
             { key: "trade" as NavKey, label: "Trade" },
@@ -621,18 +630,27 @@ export function TradingShell() {
             { key: "discover" as NavKey, label: "Discover" },
             { key: "assets" as NavKey, label: "Assets" },
             { key: "more" as NavKey, label: "More" },
-          ]).map((item) => (
-            <button
-              key={item.key}
-              onClick={() => { tap(); setNav(item.key); setMore(null); }}
-              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium transition ${
-                nav === item.key ? "text-champagne-300" : "text-white/40"
-              }`}
-            >
-              <span className={`h-1 w-1 rounded-full ${nav === item.key ? "bg-champagne-300" : "bg-transparent"}`} />
-              {item.label}
-            </button>
-          ))}
+          ]).map((item) => {
+            const active = nav === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => { tap(); setNav(item.key); setMore(null); }}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition ${
+                  active ? "text-champagne-300" : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                {/* Selected tabs carry a champagne hairline, echoing the crystal's edge. */}
+                <span
+                  className={`absolute inset-x-3 top-0 h-px transition-opacity duration-200 ${active ? "opacity-100" : "opacity-0"}`}
+                  style={{ background: "linear-gradient(90deg, transparent, rgba(232,206,122,0.85), transparent)" }}
+                />
+                <NavIcon name={item.key} filled={active} size={21} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
