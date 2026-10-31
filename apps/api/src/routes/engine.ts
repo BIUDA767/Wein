@@ -15,16 +15,20 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
   listAudit,
+  listProposals,
   getSetting,
   setSetting,
   audit,
   DEFAULT_RISK_CONFIG,
   BUILTIN_STRATEGIES,
   getBuiltin,
+  isTradingMode,
   type Config,
   type Logger,
   type RiskConfig,
   type TradeMode,
+  type TradingMode,
+  type TradeProposal,
   listSettledOrders,
 } from "@phirst/core";
 import type { TradingEngine } from "@phirst/engine";
@@ -72,11 +76,14 @@ function validateRisk(input: unknown): { ok: true; value: RiskConfig } | { ok: f
 }
 
 export function registerEngineRoutes(router: Router, engine: TradingEngine, config: Config, log: Logger): void {
-  router.get("/api/engine/status", ({ res }: RequestContext) => {
+  // Every route below is owner-only. The engine, the account and every figure it reports
+  // belong to the single owner; a member must never read them or control them. Enforced in
+  // the router, not the handler, so a new route here cannot forget the check.
+  router.owner.get("/api/engine/status", ({ res }: RequestContext) => {
     void (async () => { json(res, 200, await engine.snapshot()); })();
   });
 
-  router.post("/api/engine/start", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/engine/start", ({ res, ip }: RequestContext) => {
     void (async () => {
       const result = await engine.start();
       await audit({ actor: "user", action: "engine.start_request", detail: { ok: result.ok, message: result.message }, ip });
@@ -84,7 +91,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/pause", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/engine/pause", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { reason } = (body ?? {}) as { reason?: string };
       await engine.pause(reason || "Paused by user.");
@@ -93,7 +100,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/resume", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/engine/resume", ({ res, ip }: RequestContext) => {
     void (async () => {
       const result = await engine.resume();
       await audit({ actor: "user", action: "engine.resume_request", detail: { ok: result.ok }, ip });
@@ -101,7 +108,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/stop", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/engine/stop", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { reason } = (body ?? {}) as { reason?: string };
       await engine.stop(reason || "Stopped by user.");
@@ -110,7 +117,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/emergency-stop", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/engine/emergency-stop", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { reason } = (body ?? {}) as { reason?: string };
       await engine.emergencyStop(reason || "Emergency stop engaged by user.");
@@ -119,7 +126,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/reset-emergency", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/engine/reset-emergency", ({ res, ip }: RequestContext) => {
     void (async () => {
       const result = await engine.resetEmergency();
       await audit({ actor: "user", action: "engine.reset_emergency_request", detail: { ok: result.ok }, ip });
@@ -127,7 +134,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/mode", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/engine/mode", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { mode, confirmation } = (body ?? {}) as { mode?: TradeMode; confirmation?: string };
       if (mode !== "paper" && mode !== "live") {
@@ -140,7 +147,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/auto-trade", ({ res, body }: RequestContext) => {
+  router.owner.post("/api/engine/auto-trade", ({ res, body }: RequestContext) => {
     void (async () => {
       const { enabled } = (body ?? {}) as { enabled?: boolean };
       if (typeof enabled !== "boolean") { error(res, 400, "enabled must be a boolean."); return; }
@@ -150,7 +157,46 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/symbol", ({ res, body }: RequestContext) => {
+  // --- Trading authority (manual | approval | autonomous) ----------------------
+
+  router.owner.post("/api/engine/trading-mode", ({ res, body, ip }: RequestContext) => {
+    void (async () => {
+      const { mode } = (body ?? {}) as { mode?: TradingMode };
+      if (!isTradingMode(mode)) {
+        error(res, 400, 'mode must be "manual", "approval" or "autonomous".');
+        return;
+      }
+      const result = await engine.setTradingMode(mode);
+      await audit({ actor: "user", action: "engine.set_trading_mode_request", detail: { mode, ok: result.ok, message: result.message }, ip });
+      json(res, result.ok ? 200 : 409, result);
+    })();
+  });
+
+  router.owner.get("/api/proposals", ({ res, url }: RequestContext) => {
+    void (async () => {
+      const status = url.searchParams.get("status") as TradeProposal["status"] | null;
+      const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
+      json(res, 200, { proposals: await listProposals(limit, { status: status ?? undefined }) });
+    })();
+  });
+
+  router.owner.post("/api/proposals/:id/approve", ({ res, params, ip }: RequestContext) => {
+    void (async () => {
+      const result = await engine.approveProposal(params.id!);
+      await audit({ actor: "user", action: "proposal.approve_request", target: params.id!, detail: { ok: result.ok }, ip });
+      json(res, result.ok ? 201 : 400, result);
+    })();
+  });
+
+  router.owner.post("/api/proposals/:id/reject", ({ res, params, ip }: RequestContext) => {
+    void (async () => {
+      const result = await engine.rejectProposalById(params.id!);
+      await audit({ actor: "user", action: "proposal.reject_request", target: params.id!, detail: { ok: result.ok }, ip });
+      json(res, result.ok ? 200 : 400, result);
+    })();
+  });
+
+  router.owner.post("/api/engine/symbol", ({ res, body }: RequestContext) => {
     void (async () => {
       const { symbol } = (body ?? {}) as { symbol?: string };
       if (!symbol || symbol.trim().length === 0) { error(res, 400, "symbol is required."); return; }
@@ -160,7 +206,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/engine/reconcile", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/engine/reconcile", ({ res, ip }: RequestContext) => {
     void (async () => {
       const result = await engine.forceReconcile();
       await audit({ actor: "user", action: "engine.reconcile", detail: result ? { ...result } : null, ip });
@@ -168,7 +214,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/orders", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/orders", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { side, amount, durationSec, symbol } = (body ?? {}) as {
         side?: "buy" | "sell"; amount?: number; durationSec?: number; symbol?: string;
@@ -182,7 +228,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.get("/api/orders", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/orders", ({ res, url }: RequestContext) => {
     void (async () => {
       const mode = url.searchParams.get("mode") as TradeMode | null;
       const status = url.searchParams.get("status") ?? undefined;
@@ -191,14 +237,14 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.get("/api/positions", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/positions", ({ res, url }: RequestContext) => {
     void (async () => {
       const mode = (url.searchParams.get("mode") as TradeMode | null) ?? undefined;
       json(res, 200, { positions: await listPositions(mode) });
     })();
   });
 
-  router.get("/api/equity", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/equity", ({ res, url }: RequestContext) => {
     void (async () => {
       const mode = (url.searchParams.get("mode") as TradeMode | null) ?? "paper";
       json(res, 200, { series: await listEquity(mode, 500) });
@@ -207,11 +253,11 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
 
   // --- Risk ------------------------------------------------------------------
 
-  router.get("/api/risk", ({ res }: RequestContext) => {
+  router.owner.get("/api/risk", ({ res }: RequestContext) => {
     void (async () => { json(res, 200, { config: await getRiskConfig() }); })();
   });
 
-  router.put("/api/risk", ({ res, body, ip }: RequestContext) => {
+  router.owner.put("/api/risk", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const result = validateRisk(body);
       if (!result.ok) { error(res, 400, result.message); return; }
@@ -223,7 +269,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
 
   // --- Strategies -------------------------------------------------------------
 
-  router.get("/api/strategies", ({ res }: RequestContext) => {
+  router.owner.get("/api/strategies", ({ res }: RequestContext) => {
     void (async () => {
       json(res, 200, {
         strategies: await listStrategies(),
@@ -232,7 +278,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/strategies", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/strategies", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { name, description, templateId, params } = (body ?? {}) as {
         name?: string; description?: string; templateId?: string; params?: Record<string, unknown>;
@@ -257,7 +303,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.post("/api/strategies/:id/activate", ({ res, params, ip }: RequestContext) => {
+  router.owner.post("/api/strategies/:id/activate", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const row = await getStrategy(params.id!);
       if (!row) { error(res, 404, "Strategy not found."); return; }
@@ -268,7 +314,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.patch("/api/strategies/:id", ({ res, params, body, ip }: RequestContext) => {
+  router.owner.patch("/api/strategies/:id", ({ res, params, body, ip }: RequestContext) => {
     void (async () => {
       const row = await getStrategy(params.id!);
       if (!row) { error(res, 404, "Strategy not found."); return; }
@@ -297,7 +343,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.delete("/api/strategies/:id", ({ res, params, ip }: RequestContext) => {
+  router.owner.delete("/api/strategies/:id", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const row = await getStrategy(params.id!);
       if (!row) { error(res, 404, "Strategy not found."); return; }
@@ -310,7 +356,7 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
 
   // --- Reporting --------------------------------------------------------------
 
-  router.get("/api/reports/performance", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/reports/performance", ({ res, url }: RequestContext) => {
     void (async () => {
       const mode = (url.searchParams.get("mode") as TradeMode | null) ?? "paper";
       const orders = await listSettledOrders(mode, 500);
@@ -343,40 +389,40 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
     })();
   });
 
-  router.get("/api/verdicts", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/verdicts", ({ res, url }: RequestContext) => {
     void (async () => {
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
       json(res, 200, { verdicts: await listVerdicts(limit) });
     })();
   });
 
-  router.get("/api/notifications", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/notifications", ({ res, url }: RequestContext) => {
     void (async () => {
       const unreadOnly = url.searchParams.get("unread") === "true";
       json(res, 200, { notifications: await listNotifications(100, unreadOnly) });
     })();
   });
 
-  router.post("/api/notifications/:id/read", ({ res, params }: RequestContext) => {
+  router.owner.post("/api/notifications/:id/read", ({ res, params }: RequestContext) => {
     void (async () => { await markNotificationRead(params.id!); json(res, 200, { ok: true }); })();
   });
 
-  router.post("/api/notifications/read-all", ({ res }: RequestContext) => {
+  router.owner.post("/api/notifications/read-all", ({ res }: RequestContext) => {
     void (async () => { await markAllNotificationsRead(); json(res, 200, { ok: true }); })();
   });
 
-  router.get("/api/audit", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/audit", ({ res, url }: RequestContext) => {
     void (async () => {
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 200) || 200, 500);
       json(res, 200, { entries: await listAudit(limit) });
     })();
   });
 
-  router.get("/api/settings/:key", ({ res, params }: RequestContext) => {
+  router.owner.get("/api/settings/:key", ({ res, params }: RequestContext) => {
     void (async () => { json(res, 200, { key: params.key, value: await getSetting(params.key!) }); })();
   });
 
-  router.put("/api/settings/:key", ({ res, params, body }: RequestContext) => {
+  router.owner.put("/api/settings/:key", ({ res, params, body }: RequestContext) => {
     void (async () => { await setSetting(params.key!, body); json(res, 200, { ok: true }); })();
   });
 

@@ -6,5 +6,6 @@ export * from "./crypto/vault.ts";
 export * from "./db/pool.ts";
 export * from "./db/repo.ts";
 export * from "./risk/engine.ts";
+export * from "./risk/validator.ts";
 export * from "./strategies/registry.ts";
 export * from "./db/platform.ts";

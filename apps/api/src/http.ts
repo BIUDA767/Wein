@@ -134,6 +134,19 @@ export class Router {
     this.add("DELETE", pattern, handler, auth, guard);
   }
 
+  /**
+   * Owner-only registration. The trading engine, the broker account and every figure
+   * derived from them belong to the single owner. Using this wrapper makes the guard
+   * explicit at the registration site, so a new trading route cannot ship without it.
+   */
+  readonly owner = {
+    get: (pattern: string, handler: Handler) => this.get(pattern, handler, true, { ownerOnly: true }),
+    post: (pattern: string, handler: Handler) => this.post(pattern, handler, true, { ownerOnly: true }),
+    put: (pattern: string, handler: Handler) => this.put(pattern, handler, true, { ownerOnly: true }),
+    patch: (pattern: string, handler: Handler) => this.patch(pattern, handler, true, { ownerOnly: true }),
+    delete: (pattern: string, handler: Handler) => this.delete(pattern, handler, true, { ownerOnly: true }),
+  };
+
   setNotFound(handler: Handler): void {
     this.notFound = handler;
   }

@@ -31,7 +31,7 @@ export function registerBrokerRoutes(
   vault: Vault,
   onBrokersChanged: () => Promise<void>,
 ): void {
-  router.get("/api/brokers/providers", ({ res }: RequestContext) => {
+  router.owner.get("/api/brokers/providers", ({ res }: RequestContext) => {
     json(res, 200, {
       providers: PROVIDERS.map((p) => ({
         id: p.id,
@@ -46,7 +46,7 @@ export function registerBrokerRoutes(
     });
   });
 
-  router.get("/api/brokers", ({ res }: RequestContext) => {
+  router.owner.get("/api/brokers", ({ res }: RequestContext) => {
     void (async () => {
       const rows = await listBrokers();
       const active = await getActiveBroker();
@@ -68,7 +68,7 @@ export function registerBrokerRoutes(
   });
 
   // Create a broker connection. Credentials are encrypted before they touch the database.
-  router.post("/api/brokers", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/brokers", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { provider, label, credentials } = (body ?? {}) as {
         provider?: string;
@@ -134,7 +134,7 @@ export function registerBrokerRoutes(
     })();
   });
 
-  router.post("/api/brokers/:id/verify", ({ res, params }: RequestContext) => {
+  router.owner.post("/api/brokers/:id/verify", ({ res, params }: RequestContext) => {
     void (async () => {
       const row = await getBroker(params.id!);
       if (!row) {
@@ -168,14 +168,14 @@ export function registerBrokerRoutes(
     })();
   });
 
-  router.get("/api/brokers/:id/accounts", ({ res, params }: RequestContext) => {
+  router.owner.get("/api/brokers/:id/accounts", ({ res, params }: RequestContext) => {
     void (async () => {
       const rows = await listAccounts(params.id!);
       json(res, 200, { accounts: rows });
     })();
   });
 
-  router.post("/api/brokers/:id/activate", ({ res, params, ip }: RequestContext) => {
+  router.owner.post("/api/brokers/:id/activate", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const row = await getBroker(params.id!);
       if (!row) {
@@ -189,7 +189,7 @@ export function registerBrokerRoutes(
     })();
   });
 
-  router.post("/api/accounts/:id/activate", ({ res, params, ip }: RequestContext) => {
+  router.owner.post("/api/accounts/:id/activate", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const rows = await listAccounts();
       const acct = rows.find((a) => a.id === params.id);
@@ -206,7 +206,7 @@ export function registerBrokerRoutes(
     })();
   });
 
-  router.delete("/api/brokers/:id", ({ res, params, ip }: RequestContext) => {
+  router.owner.delete("/api/brokers/:id", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const row = await getBroker(params.id!);
       if (!row) {

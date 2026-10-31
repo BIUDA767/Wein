@@ -12,6 +12,7 @@ import {
   getSetting,
   getUserRole,
   getUserProfile,
+  type TradingMode,
 } from "@phirst/core";
 import { GeminiClient } from "@phirst/ai";
 import { TradingEngine } from "@phirst/engine";
@@ -47,6 +48,11 @@ async function main(): Promise<void> {
 
   const activeSymbol = (await getSetting<string>("activeSymbol")) ?? "R_100";
   const autoTrade = (await getSetting<boolean>("autoTrade")) ?? false;
+  const savedTradingMode = await getSetting<TradingMode>("tradingMode");
+  const tradingMode: TradingMode =
+    savedTradingMode === "manual" || savedTradingMode === "approval" || savedTradingMode === "autonomous"
+      ? savedTradingMode
+      : "manual";
 
   const engine = new TradingEngine({
     vault,
@@ -59,6 +65,7 @@ async function main(): Promise<void> {
     granularitySec: 60,
     candleCount: 300,
     autoTrade,
+    tradingMode,
   });
   await engine.init();
 

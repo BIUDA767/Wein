@@ -6,9 +6,10 @@ import type { AppState } from "@/lib/store";
 import { ConfirmDialog, EmptyState, Pill, Row, SectionTitle, Spinner, Switch } from "./ui";
 import { money, signed, titleCase } from "@/lib/format";
 
-type PanelKey = "appearance" | "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
+type PanelKey = "authority" | "appearance" | "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
 
 const PANELS: Array<{ key: PanelKey; label: string; hint: string }> = [
+  { key: "authority", label: "Trading authority", hint: "Manual, approval or autonomous" },
   { key: "appearance", label: "Appearance", hint: "Chart, layout, dashboard and sound" },
   { key: "brokers", label: "Broker connections", hint: "Connect, verify and activate brokers" },
   { key: "risk", label: "Risk configuration", hint: "Limits enforced by the backend" },
@@ -21,8 +22,8 @@ const PANELS: Array<{ key: PanelKey; label: string; hint: string }> = [
   { key: "system", label: "System", hint: "Health, diagnostics and deployment" },
 ];
 
-export function Panels({ app, perf, onRefresh }: { app: AppState; perf: PerformanceReport | null; onClose: () => void; onRefresh: () => Promise<void> }) {
-  const [open, setOpen] = useState<PanelKey | null>(null);
+export function Panels({ app, perf, onRefresh, initialPanel }: { app: AppState; perf: PerformanceReport | null; onClose: () => void; onRefresh: () => Promise<void>; initialPanel?: PanelKey }) {
+  const [open, setOpen] = useState<PanelKey | null>(initialPanel ?? null);
 
   if (open) {
     return (
@@ -31,6 +32,7 @@ export function Panels({ app, perf, onRefresh }: { app: AppState; perf: Performa
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" strokeLinecap="round" /></svg>
           All controls
         </button>
+        {open === "authority" && <AuthorityPanel app={app} />}
         {open === "appearance" && <AppearancePanel app={app} />}
       {open === "brokers" && <BrokerPanel app={app} />}
         {open === "risk" && <RiskPanel app={app} />}
@@ -60,6 +62,149 @@ export function Panels({ app, perf, onRefresh }: { app: AppState; perf: Performa
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30"><path d="M9 6l6 6-6 6" strokeLinecap="round" /></svg>
         </button>
       ))}
+    </div>
+  );
+}
+
+// --- Trading authority (manual | approval | autonomous) -----------------------
+
+const MODE_COPY: Record<"manual" | "approval" | "autonomous", { title: string; body: string; tone: "neutral" | "gold" | "bad" }> = {
+  manual: {
+    title: "Manual",
+    body: "PHIRST2 analyses and recommends only. No autonomous order is ever placed; you open every trade yourself.",
+    tone: "neutral",
+  },
+  approval: {
+    title: "Approval",
+    body: "PHIRST2 prepares a concrete, risk-sized trade and waits. Nothing executes until you approve it. Proposals expire if the price moves too far.",
+    tone: "gold",
+  },
+  autonomous: {
+    title: "Autonomous",
+    body: "PHIRST2 executes qualifying trades inside your risk limits. The risk engine still holds final veto, and the independent validator can still block or escalate a trade.",
+    tone: "bad",
+  },
+};
+
+/**
+ * The authority control. It reads the mode from the backend and changes it there — the
+ * value shown is never a local guess. Changing authority is refused while the engine is
+ * running, so no order is caught mid-flight; the panel says so rather than failing silently.
+ */
+function AuthorityPanel({ app }: { app: AppState }) {
+  const { engine, refresh, notify } = app;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const current = engine?.tradingMode ?? "manual";
+  const running = engine?.state === "running";
+
+  const change = async (mode: "manual" | "approval" | "autonomous") => {
+    if (mode === current) return;
+    setBusy(mode);
+    setError(null);
+    try {
+      const res = await api.post<{ ok: boolean; message: string }>("/api/engine/trading-mode", { mode });
+      await refresh();
+      notify(res.message, "good");
+    } catch (err) {
+      setError(err instanceof ApiFailure ? err.message : (err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const decide = async (id: string, action: "approve" | "reject") => {
+    setBusy(id + action);
+    setError(null);
+    try {
+      const res = await api.post<{ ok: boolean; message: string }>(`/api/proposals/${id}/${action}`);
+      await refresh();
+      notify(res.message, action === "approve" ? "good" : "neutral");
+    } catch (err) {
+      setError(err instanceof ApiFailure ? err.message : (err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pending = engine?.pendingProposals ?? [];
+
+  return (
+    <div>
+      <SectionTitle>Trading authority</SectionTitle>
+      <p className="mb-4 text-[11.5px] leading-relaxed text-white/40">
+        This decides how much PHIRST2 may do on its own. It is enforced by the trading engine, not by this screen, and it is persisted so a restart never widens it. It is a separate axis from paper/live.
+      </p>
+
+      {running && (
+        <div className="mb-4 rounded-2xl border border-amber-400/25 bg-amber-400/8 px-3 py-2.5 text-[12px] text-amber-200/90">
+          Pause the engine to change authority, so no order is caught mid-flight.
+        </div>
+      )}
+
+      <div className="mb-5 space-y-2">
+        {(Object.keys(MODE_COPY) as Array<keyof typeof MODE_COPY>).map((mode) => {
+          const copy = MODE_COPY[mode];
+          const active = current === mode;
+          return (
+            <button
+              key={mode}
+              disabled={busy !== null || running}
+              onClick={() => void change(mode)}
+              className={`w-full rounded-2xl border px-4 py-3.5 text-left transition active:scale-[0.99] disabled:opacity-60 ${
+                active ? "border-champagne-500/45 bg-champagne-500/8" : "tile"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] font-medium text-white">{copy.title}</span>
+                {active ? <Pill tone={copy.tone}>active</Pill> : busy === mode ? <Spinner size={14} /> : null}
+              </div>
+              <p className="mt-1 text-[11.5px] leading-relaxed text-white/45">{copy.body}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <SectionTitle
+        action={pending.length > 0 ? <Pill tone="gold">{pending.length}</Pill> : undefined}
+      >
+        Awaiting your approval
+      </SectionTitle>
+      {pending.length === 0 ? (
+        <EmptyState
+          title="No pending proposals"
+          body={current === "approval" ? "When PHIRST2 finds a qualifying trade it will appear here for your decision." : "Switch to approval mode to review trades before they execute."}
+        />
+      ) : (
+        <div className="space-y-2">
+          {pending.map((p) => (
+            <div key={p.id} className="rounded-2xl border tile p-3.5">
+              <div className="flex items-center justify-between">
+                <span className={`text-[13.5px] font-semibold ${p.side === "buy" ? "text-emerald-400" : "text-ruby-400"}`}>
+                  {p.side.toUpperCase()} {p.symbol}
+                </span>
+                <span className="mono-num text-[13px] text-white/80">{money(p.amount)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/45">
+                <span>{p.durationSec}s contract</span>
+                {p.referencePrice !== null && <span>at {p.referencePrice}</span>}
+                <span>expires {new Date(p.expiresAt).toLocaleTimeString()}</span>
+              </div>
+              {p.rationale && <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/50">{p.rationale}</p>}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button className="btn-primary py-2.5" disabled={busy !== null} onClick={() => void decide(p.id, "approve")}>
+                  {busy === p.id + "approve" ? <Spinner size={14} /> : "Approve"}
+                </button>
+                <button className="btn-ghost py-2.5" disabled={busy !== null} onClick={() => void decide(p.id, "reject")}>
+                  {busy === p.id + "reject" ? <Spinner size={14} /> : "Reject"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <div className="mt-3 rounded-2xl border border-ruby-500/30 bg-ruby-500/8 px-3 py-2.5 text-[12px] text-ruby-400">{error}</div>}
     </div>
   );
 }

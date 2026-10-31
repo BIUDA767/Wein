@@ -13,7 +13,7 @@ import { json, error, type RequestContext, type Router } from "../http.ts";
 const VALID_PERMISSIONS: TelegramPermission[] = ["read", "control", "trade", "emergency"];
 
 export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Logger): void {
-  router.get("/api/telegram/status", ({ res }: RequestContext) => {
+  router.owner.get("/api/telegram/status", ({ res }: RequestContext) => {
     void (async () => {
       const links = await listTelegramLinks();
       json(res, 200, {
@@ -25,7 +25,7 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
   });
 
   /** Issue a one-time link code. The user sends /start <code> to the bot. */
-  router.post("/api/telegram/link-code", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/telegram/link-code", ({ res, ip }: RequestContext) => {
     void (async () => {
       if (!bot.configured) {
         error(res, 400, "TELEGRAM_BOT_TOKEN is not configured on the server. Set it and restart the API.");
@@ -41,7 +41,7 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
     })();
   });
 
-  router.put("/api/telegram/links/:chatId", ({ res, params, body, ip }: RequestContext) => {
+  router.owner.put("/api/telegram/links/:chatId", ({ res, params, body, ip }: RequestContext) => {
     void (async () => {
       const { permissions } = (body ?? {}) as { permissions?: string[] };
       if (!Array.isArray(permissions)) {
@@ -65,7 +65,7 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
     })();
   });
 
-  router.delete("/api/telegram/links/:chatId", ({ res, params, ip }: RequestContext) => {
+  router.owner.delete("/api/telegram/links/:chatId", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       await deleteTelegramLink(params.chatId!);
       await audit({ actor: "user", action: "telegram.unlink", target: params.chatId, ip });
@@ -73,7 +73,7 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
     })();
   });
 
-  router.post("/api/telegram/test", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/telegram/test", ({ res, ip }: RequestContext) => {
     void (async () => {
       if (!bot.configured) {
         error(res, 400, "TELEGRAM_BOT_TOKEN is not configured on the server.");

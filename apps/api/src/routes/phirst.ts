@@ -21,7 +21,7 @@ import { json, error, type RequestContext, type Router } from "../http.ts";
  * Broker credentials are never included in any prompt or stored in memory.
  */
 export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemini: GeminiClient, config: Config): void {
-  router.get("/api/phirst/identity", ({ res }: RequestContext) => {
+  router.owner.get("/api/phirst/identity", ({ res }: RequestContext) => {
     json(res, 200, {
       identity: PHIRST2_IDENTITY,
       llm: { available: gemini.available, model: gemini.available ? config.geminiModel : null },
@@ -29,7 +29,7 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     });
   });
 
-  router.post("/api/phirst/chat", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/phirst/chat", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { message } = (body ?? {}) as { message?: string };
       if (!message || message.trim().length === 0) { error(res, 400, "message is required."); return; }
@@ -51,11 +51,11 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.get("/api/phirst/memory", ({ res }: RequestContext) => {
+  router.owner.get("/api/phirst/memory", ({ res }: RequestContext) => {
     void (async () => { json(res, 200, { memory: await listMemory(200) }); })();
   });
 
-  router.post("/api/phirst/memory", ({ res, body, ip }: RequestContext) => {
+  router.owner.post("/api/phirst/memory", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { content, kind, importance } = (body ?? {}) as { content?: string; kind?: string; importance?: number };
       if (!content || content.trim().length === 0) { error(res, 400, "content is required."); return; }
@@ -70,7 +70,7 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.patch("/api/phirst/memory/:id", ({ res, params, body, ip }: RequestContext) => {
+  router.owner.patch("/api/phirst/memory/:id", ({ res, params, body, ip }: RequestContext) => {
     void (async () => {
       const { content, importance } = (body ?? {}) as { content?: string; importance?: number };
       if (!content || content.trim().length === 0) { error(res, 400, "content is required."); return; }
@@ -80,7 +80,7 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.delete("/api/phirst/memory/:id", ({ res, params, ip }: RequestContext) => {
+  router.owner.delete("/api/phirst/memory/:id", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       await deleteMemory(params.id!);
       await audit({ actor: "user", action: "phirst.memory_delete", target: params.id, ip });
@@ -88,7 +88,7 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.post("/api/phirst/memory/purge", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/phirst/memory/purge", ({ res, ip }: RequestContext) => {
     void (async () => {
       await purgeMemory();
       await audit({ actor: "user", action: "phirst.memory_purge", ip });
@@ -96,14 +96,14 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.get("/api/phirst/voice", ({ res }: RequestContext) => {
+  router.owner.get("/api/phirst/voice", ({ res }: RequestContext) => {
     void (async () => {
       const stored = await getSetting<Record<string, unknown>>("voice");
       json(res, 200, { voice: stored ?? DEFAULT_VOICE_SETTINGS });
     })();
   });
 
-  router.put("/api/phirst/voice", ({ res, body, ip }: RequestContext) => {
+  router.owner.put("/api/phirst/voice", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const input = (body ?? {}) as Record<string, unknown>;
       const merged = { ...DEFAULT_VOICE_SETTINGS, ...input };
@@ -128,7 +128,7 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
     })();
   });
 
-  router.get("/api/phirst/verdicts", ({ res, url }: RequestContext) => {
+  router.owner.get("/api/phirst/verdicts", ({ res, url }: RequestContext) => {
     void (async () => {
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200);
       json(res, 200, { verdicts: await listVerdicts(limit) });

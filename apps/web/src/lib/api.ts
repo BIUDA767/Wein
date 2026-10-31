@@ -50,6 +50,7 @@ export const api = {
 export interface EngineStatus {
   state: "stopped" | "running" | "paused" | "halted" | "emergency";
   mode: "paper" | "live";
+  tradingMode: "manual" | "approval" | "autonomous";
   reason: string | null;
   symbol: string;
   equity: number;
@@ -73,7 +74,26 @@ export interface EngineStatus {
   activeStrategyId: string | null;
   lastPrice: number | null;
   emergencyStop: boolean;
+  pendingProposals: TradeProposal[];
   updatedAt: string;
+}
+
+export interface TradeProposal {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  amount: number;
+  durationSec: number;
+  strategyId: string | null;
+  rationale: string | null;
+  mode: "paper" | "live";
+  status: "pending" | "approved" | "rejected" | "expired" | "blocked";
+  referencePrice: number | null;
+  blockReason: string | null;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  orderId: string | null;
 }
 
 export interface RiskConfig {

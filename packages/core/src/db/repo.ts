@@ -7,6 +7,7 @@ import {
   type OrderStatus,
   type RiskConfig,
   type TradeMode,
+  type TradeProposal,
 } from "../types.ts";
 
 // --- Users & sessions ---------------------------------------------------------
@@ -306,6 +307,142 @@ export async function listSettledOrders(mode: TradeMode, limit = 500): Promise<O
 export async function findOrderByBrokerId(brokerOrderId: string): Promise<OrderRecord | null> {
   const row = await queryOne<Row>("SELECT * FROM orders WHERE broker_order_id = $1", [brokerOrderId]);
   return row ? mapOrderRow(row) : null;
+}
+
+// --- Trade proposals (approval mode) ------------------------------------------
+
+/** Map a raw snake_case row to the domain shape. Never cast a raw row directly. */
+export function mapProposalRow(row: Row): TradeProposal {
+  return {
+    id: String(row.id),
+    symbol: String(row.symbol),
+    side: row.side as TradeProposal["side"],
+    amount: Number(row.amount),
+    durationSec: Number(row.duration_sec),
+    strategyId: row.strategy_id === null || row.strategy_id === undefined ? null : String(row.strategy_id),
+    rationale: row.rationale === null || row.rationale === undefined ? null : String(row.rationale),
+    mode: row.mode as TradeMode,
+    status: row.status as TradeProposal["status"],
+    referencePrice: row.reference_price === null || row.reference_price === undefined ? null : Number(row.reference_price),
+    blockReason: row.block_reason === null || row.block_reason === undefined ? null : String(row.block_reason),
+    createdAt: String(row.created_at),
+    expiresAt: String(row.expires_at),
+    decidedAt: row.decided_at === null || row.decided_at === undefined ? null : String(row.decided_at),
+    orderId: row.order_id === null || row.order_id === undefined ? null : String(row.order_id),
+  };
+}
+
+/**
+ * Insert a pending proposal. The partial unique index makes this the dedupe point:
+ * a second pending proposal for the same symbol and direction violates the index
+ * and returns null, so the caller simply keeps the existing one.
+ */
+export async function insertProposal(p: {
+  symbol: string;
+  side: TradeProposal["side"];
+  amount: number;
+  durationSec: number;
+  strategyId: string | null;
+  rationale: string | null;
+  mode: TradeMode;
+  referencePrice: number | null;
+  ttlSec: number;
+}): Promise<TradeProposal | null> {
+  const id = newId();
+  const row = await queryOne<Row>(
+    `INSERT INTO trade_proposals
+       (id, symbol, side, amount, duration_sec, strategy_id, rationale, mode, reference_price, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now() + ($10 || ' seconds')::interval)
+     ON CONFLICT (symbol, side) WHERE status = 'pending' DO NOTHING
+     RETURNING *`,
+    [id, p.symbol, p.side, p.amount, p.durationSec, p.strategyId, p.rationale, p.mode, p.referencePrice, p.ttlSec],
+  );
+  return row ? mapProposalRow(row) : null;
+}
+
+export async function getProposal(id: string): Promise<TradeProposal | null> {
+  const row = await queryOne<Row>("SELECT * FROM trade_proposals WHERE id = $1", [id]);
+  return row ? mapProposalRow(row) : null;
+}
+
+export async function listProposals(
+  limit = 50,
+  filters: { status?: TradeProposal["status"] } = {},
+): Promise<TradeProposal[]> {
+  const vals: unknown[] = [];
+  let where = "";
+  if (filters.status) {
+    vals.push(filters.status);
+    where = `WHERE status = $${vals.length}`;
+  }
+  vals.push(limit);
+  const rows = await query<Row>(
+    `SELECT * FROM trade_proposals ${where} ORDER BY created_at DESC LIMIT $${vals.length}`,
+    vals,
+  );
+  return rows.map(mapProposalRow);
+}
+
+export async function listPendingProposals(): Promise<TradeProposal[]> {
+  const rows = await query<Row>(
+    "SELECT * FROM trade_proposals WHERE status = 'pending' ORDER BY created_at ASC",
+  );
+  return rows.map(mapProposalRow);
+}
+
+/**
+ * Claim a proposal for execution. Only a still-pending proposal can be claimed, so
+ * two concurrent approvals cannot both execute it. Returns the row when this caller
+ * won the claim, null when someone else already decided it.
+ */
+export async function claimProposal(id: string): Promise<TradeProposal | null> {
+  const row = await queryOne<Row>(
+    `UPDATE trade_proposals SET status='approved', decided_at=now()
+     WHERE id=$1 AND status='pending' RETURNING *`,
+    [id],
+  );
+  return row ? mapProposalRow(row) : null;
+}
+
+export async function rejectProposal(id: string): Promise<boolean> {
+  const row = await queryOne<Row>(
+    `UPDATE trade_proposals SET status='rejected', decided_at=now()
+     WHERE id=$1 AND status='pending' RETURNING id`,
+    [id],
+  );
+  return row !== null;
+}
+
+/** Mark a claimed proposal with the order it produced. */
+export async function attachProposalOrder(id: string, orderId: string): Promise<void> {
+  await exec("UPDATE trade_proposals SET order_id=$2 WHERE id=$1", [id, orderId]);
+}
+
+/**
+ * Expire pending proposals that are past their TTL, or whose reference price has
+ * moved beyond `maxDriftPct`. A stale proposal is not a trade the owner agreed to.
+ */
+export async function expireStaleProposals(maxDriftPct: number, currentPrice: number): Promise<number> {
+  const res = await query<Row>(
+    `UPDATE trade_proposals SET status='expired', decided_at=now()
+     WHERE status='pending'
+       AND (expires_at < now()
+            OR (reference_price IS NOT NULL AND reference_price > 0
+                AND abs($1 - reference_price) / reference_price * 100 > $2))
+     RETURNING id`,
+    [currentPrice, maxDriftPct],
+  );
+  return res.length;
+}
+
+/** Expire every pending proposal, e.g. when leaving approval mode. */
+export async function expireAllPendingProposals(reason: string): Promise<number> {
+  const res = await query<Row>(
+    `UPDATE trade_proposals SET status='expired', decided_at=now(), block_reason=COALESCE(block_reason, $1)
+     WHERE status='pending' RETURNING id`,
+    [reason],
+  );
+  return res.length;
 }
 
 // --- Positions ----------------------------------------------------------------

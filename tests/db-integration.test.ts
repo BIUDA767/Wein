@@ -141,4 +141,69 @@ maybe("paper simulator restore", () => {
     expect(positions).toHaveLength(1);
     expect(positions[0].brokerPositionId).toBe("paper-open-1");
   });
+
+  it("queues at most one pending proposal per symbol and side", async () => {
+    const symbol = `PROP_${Date.now()}`;
+    const first = await core.insertProposal({
+      symbol, side: "buy", amount: 25, durationSec: 60, strategyId: null,
+      rationale: "test", mode: "paper", referencePrice: 100, ttlSec: 300,
+    });
+    expect(first).not.toBeNull();
+    expect(first!.status).toBe("pending");
+    // A second pending proposal for the same symbol and side is refused by the partial
+    // unique index, so the loop cannot bury the owner in duplicates.
+    const second = await core.insertProposal({
+      symbol, side: "buy", amount: 30, durationSec: 60, strategyId: null,
+      rationale: "dup", mode: "paper", referencePrice: 100, ttlSec: 300,
+    });
+    expect(second).toBeNull();
+    // A different side is a genuinely different decision and is allowed.
+    const opposite = await core.insertProposal({
+      symbol, side: "sell", amount: 10, durationSec: 60, strategyId: null,
+      rationale: "opposite", mode: "paper", referencePrice: 100, ttlSec: 300,
+    });
+    expect(opposite).not.toBeNull();
+    await core.getPool().query("DELETE FROM trade_proposals WHERE symbol=$1", [symbol]);
+  });
+
+  it("claims a proposal exactly once", async () => {
+    const symbol = `CLAIM_${Date.now()}`;
+    const p = await core.insertProposal({
+      symbol, side: "buy", amount: 25, durationSec: 60, strategyId: null,
+      rationale: "claim", mode: "paper", referencePrice: 100, ttlSec: 300,
+    });
+    const a = await core.claimProposal(p!.id);
+    expect(a).not.toBeNull();
+    // The second claim loses: the status is no longer pending, so no duplicate order.
+    const b = await core.claimProposal(p!.id);
+    expect(b).toBeNull();
+    await core.getPool().query("DELETE FROM trade_proposals WHERE id=$1", [p!.id]);
+  });
+
+  it("expires a stale proposal when the price has drifted", async () => {
+    const symbol = `DRIFT_${Date.now()}`;
+    const p = await core.insertProposal({
+      symbol, side: "buy", amount: 25, durationSec: 60, strategyId: null,
+      rationale: "drift", mode: "paper", referencePrice: 100, ttlSec: 300,
+    });
+    // A 5% move is beyond the 1.5% tolerance, so the proposal must expire.
+    const expired = await core.expireStaleProposals(1.5, 105);
+    expect(expired).toBeGreaterThanOrEqual(1);
+    const after = await core.getProposal(p!.id);
+    expect(after!.status).toBe("expired");
+    await core.getPool().query("DELETE FROM trade_proposals WHERE id=$1", [p!.id]);
+  });
+
+  it("expires a proposal past its TTL even without price drift", async () => {
+    const symbol = `TTL_${Date.now()}`;
+    const p = await core.insertProposal({
+      symbol, side: "buy", amount: 25, durationSec: 60, strategyId: null,
+      rationale: "ttl", mode: "paper", referencePrice: 100, ttlSec: -1,
+    });
+    const expired = await core.expireStaleProposals(100, 100);
+    expect(expired).toBeGreaterThanOrEqual(1);
+    const after = await core.getProposal(p!.id);
+    expect(after!.status).toBe("expired");
+    await core.getPool().query("DELETE FROM trade_proposals WHERE id=$1", [p!.id]);
+  });
 });

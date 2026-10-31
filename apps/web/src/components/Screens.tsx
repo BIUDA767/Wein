@@ -18,9 +18,14 @@ import { Card, EmptyState, Pill, Row, SectionTitle, Spinner } from "./ui";
 
 /** Shared props: every screen reads the same live engine snapshot. */
 export interface ScreenProps {
-  engine: EngineStatus | null;
+  /**
+   * The live engine snapshot. Only the owner receives one; a member sees the community
+   * surfaces and no account figures at all, so this is optional.
+   */
+  engine?: EngineStatus | null;
   notify: (text: string, tone?: "neutral" | "good" | "bad" | "warn") => void;
-  onOpenControls: () => void;
+  /** Present only for the owner, who is the only role that can open the controls sheet. */
+  onOpenControls?: () => void;
 }
 
 function usePoll<T>(path: string, intervalMs: number, enabled = true) {
@@ -544,8 +549,12 @@ export function ProfileScreen({ engine, notify, onOpenControls }: ScreenProps) {
         <SectionTitle>Account</SectionTitle>
         <Row label="Username" value={identity.username} />
         <Row label="Role" value={<Pill tone={isOwner ? "gold" : identity.role === "moderator" ? "good" : "neutral"}>{identity.role}</Pill>} />
-        <Row label="Account mode" value={engine?.mode === "live" ? <Pill tone="bad">LIVE</Pill> : <Pill tone="gold">PAPER</Pill>} />
-        <Row label="Broker" value={engine?.brokerName ?? "none connected"} />
+        {isOwner && (
+          <>
+            <Row label="Account mode" value={engine?.mode === "live" ? <Pill tone="bad">LIVE</Pill> : <Pill tone="gold">PAPER</Pill>} />
+            <Row label="Broker" value={engine?.brokerName ?? "none connected"} />
+          </>
+        )}
       </Card>
 
       <Card>
@@ -587,7 +596,13 @@ export function ProfileScreen({ engine, notify, onOpenControls }: ScreenProps) {
 
       <Card>
         <SectionTitle>Controls</SectionTitle>
-        <button className="btn-ghost w-full" onClick={onOpenControls}>Open broker, risk, strategy and voice controls</button>
+        {onOpenControls ? (
+          <button className="btn-ghost w-full" onClick={onOpenControls}>Open broker, risk, strategy and voice controls</button>
+        ) : (
+          <p className="text-[12px] leading-relaxed text-white/45">
+            Broker, risk, strategy and voice controls belong to the account owner. Your account has the {identity.role} role.
+          </p>
+        )}
       </Card>
 
       {moderation.length > 0 && (
@@ -684,7 +699,13 @@ export function SupportScreen({ onOpenControls }: ScreenProps) {
 
       <Card>
         <SectionTitle>Controls and diagnostics</SectionTitle>
-        <button className="btn-ghost w-full" onClick={onOpenControls}>Open controls</button>
+        {onOpenControls ? (
+          <button className="btn-ghost w-full" onClick={onOpenControls}>Open controls</button>
+        ) : (
+          <p className="text-[12px] leading-relaxed text-white/45">
+            Engine controls are available to the account owner only.
+          </p>
+        )}
       </Card>
     </div>
   );

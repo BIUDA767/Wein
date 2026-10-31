@@ -129,3 +129,34 @@ the behaviour it protects.
 36. A suspended member is treated as unauthenticated. `Router.authenticate` returns null
     for a suspended account, so every authenticated route refuses it without each handler
     repeating the check.
+
+37. Trading authority is a separate axis from paper/live. `TradeMode` (paper|live) says
+    *where* an order goes; `TradingMode` (manual|approval|autonomous) says *how much the bot
+    may do alone*. The two must never be collapsed into one setting. In `manual` no
+    autonomous order is ever placed; in `approval` the engine records a `trade_proposals`
+    row and places nothing until the owner approves it; in `autonomous` it executes inside
+    the risk limits. The mode is persisted under `app_settings.tradingMode` and re-read on
+    start, so a restart never widens authority on its own.
+38. Changing trading authority is refused while the engine is running, so no order is caught
+    mid-flight. Leaving `approval` expires every pending proposal with an audit reason, so a
+    stale decision can never execute later under a narrower or wider mode.
+39. A proposal is claimed exactly once. `claimProposal` flips `pending` to `approved`
+    atomically; a second claim returns null, so a double-tap or a retried request cannot
+    place two orders. A partial unique index allows at most one pending proposal per symbol
+    and side, so the loop cannot bury the owner in duplicates.
+40. The independent validator (`packages/core/src/risk/validator.ts`) is a second, pure and
+    synchronous opinion layered on top of the risk engine, not a replacement for it. It can
+    allow, escalate to a proposal, or block a trade. The risk engine still holds final veto;
+    the validator can only narrow what executes, never widen it.
+41. The engine never fabricates activity to look busy. In autonomous mode it opens a trade
+    only when a real strategy signal, the risk engine and the validator all agree. A flat
+    market correctly produces no order.
+42. The trading surface is owner-only, enforced at the router, not the client. Every
+    `/api/engine/*` route, the account reads (`orders`, `positions`, `equity`, `risk`,
+    `strategies`, `reports`, `notifications`, `equity`), and the broker, AI-memory,
+    verdict and Telegram control routes carry `ownerOnly`. A member who calls them gets
+    `403 Owner permission required`; the client role check only decides what to render and
+    is never the enforcement point. A member therefore loads `MemberShell` (community,
+    messages, support, own profile) and never receives an engine snapshot, so no member
+    screen can show the owner's figures or offer a control it cannot use.
+

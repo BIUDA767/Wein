@@ -71,6 +71,7 @@ export function TradingShell() {
   const [positions, setPositions] = useState<PositionRecord[]>([]);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
+  const [panelsInitial, setPanelsInitial] = useState<"authority" | undefined>(undefined);
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<"buy" | "sell" | null>(null);
@@ -318,6 +319,10 @@ export function TradingShell() {
               <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-white/40">
                 <span className={engine?.mode === "live" ? "font-semibold text-ruby-400" : ""}>{engine?.mode === "live" ? "LIVE" : "PAPER"}</span>
                 <span>·</span>
+                <span className={engine?.tradingMode === "autonomous" ? "font-semibold text-champagne-300" : engine?.tradingMode === "approval" ? "font-semibold text-champagne-300/90" : ""}>
+                  {engine?.tradingMode ? engine.tradingMode.toUpperCase() : "MANUAL"}
+                </span>
+                <span>·</span>
                 <span className="truncate">{engine?.brokerName ?? "no broker"}</span>
               </div>
             </div>
@@ -384,6 +389,21 @@ export function TradingShell() {
               </div>
             </button>
           </section>
+
+          {engine && engine.pendingProposals.length > 0 && (
+            <button
+              onClick={() => { tap(); setPanelsInitial("authority"); setPanelsOpen(true); }}
+              className="mb-3 flex w-full items-center justify-between rounded-2xl border border-champagne-500/40 bg-champagne-500/8 px-4 py-3 text-left active:scale-[0.995]"
+            >
+              <div>
+                <div className="text-[13px] font-semibold text-champagne-200">
+                  {engine.pendingProposals.length} trade{engine.pendingProposals.length > 1 ? "s" : ""} awaiting your approval
+                </div>
+                <div className="mt-0.5 text-[11.5px] text-white/50">PHIRST2 prepared these. Nothing executes until you decide.</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-champagne-300/70"><path d="M9 6l6 6-6 6" strokeLinecap="round" /></svg>
+            </button>
+          )}
 
           <div className="mb-3 flex rounded-2xl border tile p-1">
             {(["trade", "positions", "history"] as const).map((t) => (
@@ -742,11 +762,12 @@ export function TradingShell() {
         onTap={tap}
       />
 
-      <Sheet open={panelsOpen} title="Controls" onClose={() => setPanelsOpen(false)}>
+      <Sheet open={panelsOpen} title="Controls" onClose={() => { setPanelsOpen(false); setPanelsInitial(undefined); }}>
         <Panels
           app={app}
           perf={perf}
-          onClose={() => setPanelsOpen(false)}
+          initialPanel={panelsInitial}
+          onClose={() => { setPanelsOpen(false); setPanelsInitial(undefined); }}
           onRefresh={async () => {
             await refresh();
             await loadTradingData();

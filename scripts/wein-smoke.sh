@@ -119,6 +119,45 @@ check "member restored" '"ok":true' "$R"
 say "17. Engine status and paper mode"
 R=$(curl -s -b "$OWNER" "$B/api/engine/status")
 check "engine reports paper mode" '"mode":"paper"' "$R"
+check "engine reports a trading mode" '"tradingMode":"manual"' "$R"
+
+say "18. Trading authority is a real, persisted axis"
+R=$(curl -s -b "$OWNER" -X POST "$B/api/engine/trading-mode" -H 'Content-Type: application/json' -d '{"mode":"nonsense"}')
+check "unknown trading mode is refused" 'mode must be' "$R"
+R=$(curl -s -b "$OWNER" -X POST "$B/api/engine/trading-mode" -H 'Content-Type: application/json' -d '{"mode":"approval"}')
+check "authority can be set to approval" '"ok":true' "$R"
+R=$(curl -s -b "$OWNER" "$B/api/engine/status")
+check "status reflects the new authority" '"tradingMode":"approval"' "$R"
+R=$(curl -s -b "$OWNER" -X POST "$B/api/engine/trading-mode" -H 'Content-Type: application/json' -d '{"mode":"manual"}')
+check "authority can be returned to manual" '"ok":true' "$R"
+
+say "19. Proposals are owner-only and decision-safe"
+R=$(curl -s "$B/api/proposals")
+check "proposals require a session" 'Authentication required' "$R"
+R=$(curl -s -b "$MEMBER" "$B/api/proposals")
+check "proposals are owner-only" 'Owner permission required' "$R"
+# A proposal that does not exist can be decided neither way.
+R=$(curl -s -b "$OWNER" -X POST "$B/api/proposals/does-not-exist/approve")
+check "unknown proposal cannot be approved" '"ok":false' "$R"
+R=$(curl -s -b "$OWNER" -X POST "$B/api/proposals/does-not-exist/reject")
+check "unknown proposal cannot be rejected" '"ok":false' "$R"
+
+say "20. The trading surface is owner-only"
+# A member must not be able to control the engine, read the owner's account, or reach
+# broker, risk, strategy, AI-memory or Telegram controls.
+for ep in "engine/status" "orders" "positions" "equity" "risk" "strategies" \
+          "reports/performance" "notifications" "brokers" "brokers/providers" \
+          "audit" "verdicts" "phirst/memory" "phirst/voice" "telegram/status"; do
+  R=$(curl -s -b "$MEMBER" "$B/api/$ep")
+  check "member cannot read /api/$ep" 'Owner permission required' "$R"
+done
+for ep in "engine/start" "engine/pause" "engine/emergency-stop" "engine/trading-mode" \
+          "engine/auto-trade" "engine/mode" "engine/symbol" "engine/reconcile"; do
+  R=$(curl -s -b "$MEMBER" -X POST "$B/api/$ep" -H 'Content-Type: application/json' -d '{}')
+  check "member cannot POST /api/$ep" 'Owner permission required' "$R"
+done
+R=$(curl -s -b "$MEMBER" -X PUT "$B/api/risk" -H 'Content-Type: application/json' -d '{}')
+check "member cannot write risk" 'Owner permission required' "$R"
 
 printf '\n\033[1m%s\033[0m\n' "RESULT: $pass passed, $fail failed"
 rm -rf "$TMP"

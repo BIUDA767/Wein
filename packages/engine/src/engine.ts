@@ -1,6 +1,8 @@
 import {
   Vault,
   evaluateRisk,
+  validateTrade,
+  DEFAULT_VALIDATION_LIMITS,
   drawdownFromEquity,
   snapshot,
   resolveStrategy,
@@ -12,6 +14,7 @@ import {
   listPositions,
   listOpenOrders,
   listSettledOrders,
+  listOrders,
   getRiskConfig,
   getEngineState,
   setEngineState,
@@ -23,11 +26,24 @@ import {
   releaseLeaderLock,
   holdsLeaderLock,
   getPlatformFlag,
+  getSetting,
+  setSetting,
+  insertProposal,
+  listPendingProposals,
+  listProposals,
+  getProposal,
+  claimProposal,
+  rejectProposal,
+  attachProposalOrder,
+  expireStaleProposals,
+  expireAllPendingProposals,
   type EngineState,
   type RiskContext,
   type StrategySignal,
   type TradeIntent,
   type TradeMode,
+  type TradingMode,
+  type TradeProposal,
   type AgentVerdict,
   type Candle,
   type Logger,
@@ -49,11 +65,15 @@ export interface EngineOptions {
   granularitySec: number;
   candleCount: number;
   autoTrade: boolean;
+  /** How much authority PHIRST2 has. Enforced by the engine, not the UI. */
+  tradingMode?: TradingMode;
 }
 
 export interface EngineSnapshot {
   state: EngineState;
   mode: TradeMode;
+  /** manual | approval | autonomous. Distinct from `mode` (paper vs live). */
+  tradingMode: TradingMode;
   reason: string | null;
   symbol: string;
   equity: number;
@@ -70,6 +90,8 @@ export interface EngineSnapshot {
   activeStrategyId: string | null;
   lastPrice: number | null;
   emergencyStop: boolean;
+  /** Pending approval-mode proposals awaiting the owner. */
+  pendingProposals: TradeProposal[];
   updatedAt: string;
 }
 
@@ -89,6 +111,7 @@ export class TradingEngine {
   private ticking = false;
   private state: EngineState = "stopped";
   private mode: TradeMode = "paper";
+  private tradingMode: TradingMode = "manual";
   private reason: string | null = null;
   private broker: BrokerManager;
   private market: MarketDataService | null = null;
@@ -113,6 +136,7 @@ export class TradingEngine {
 
   constructor(private opts: EngineOptions) {
     this.broker = new BrokerManager(opts.vault, opts.log, opts.paperStartingBalance);
+    this.tradingMode = opts.tradingMode ?? "manual";
   }
 
   async init(): Promise<void> {
@@ -120,6 +144,12 @@ export class TradingEngine {
     this.state = persisted.state as EngineState;
     this.mode = persisted.mode;
     this.reason = persisted.reason;
+    // The trading authority is persisted separately from the running state, so a
+    // restart restores exactly the authority the owner last set — never wider.
+    const savedMode = await getSetting<TradingMode>("tradingMode");
+    if (savedMode === "manual" || savedMode === "approval" || savedMode === "autonomous") {
+      this.tradingMode = savedMode;
+    }
     if (this.state === "running") {
       // A restart must not silently resume trading.
       this.state = "paused";
@@ -299,6 +329,7 @@ export class TradingEngine {
           await this.settleExpired();
           await this.refreshStats();
           await this.refreshPrice();
+          await this.sweepProposals();
         } catch (err) {
           this.opts.log.debug("heartbeat failed", { error: (err as Error).message });
         }
@@ -532,6 +563,31 @@ export class TradingEngine {
       return;
     }
 
+    // The independent validation layer runs after the risk engine and before any
+    // execution. It is pure and synchronous, so it adds no latency, and it is the
+    // one place that can turn an otherwise-valid trade into a proposal or a block.
+    const validation = validateTrade({
+      intent: proposed,
+      risk,
+      verdicts: panel.verdicts,
+      spreadFraction: await this.spreadFraction(),
+      ordersLastHour: await this.ordersLastHour(),
+      secondsSinceLastLoss: await this.secondsSinceLastLoss(),
+      consecutiveLosses: this.lossStreak,
+      minExpirySec: caps.minExpirySec,
+      limits: DEFAULT_VALIDATION_LIMITS,
+    });
+    if (validation.outcome === "block") {
+      this.opts.log.warn("validation blocked a trade", { reasons: validation.reasons });
+      await insertNotification({
+        severity: "warn",
+        title: "Trade blocked by validation",
+        body: validation.reasons.join(" "),
+        category: "risk",
+      });
+      return;
+    }
+
     // Do not stack a second identical position while one is already open. Without this
     // the loop would re-enter on every tick for as long as the signal held.
     const open = await listOpenOrders(this.mode);
@@ -540,6 +596,42 @@ export class TradingEngine {
     );
     if (sameDirectionOpen) {
       this.opts.log.debug("signal held but an equivalent position is already open", { direction: signal.direction });
+      return;
+    }
+
+    // Authority check. In manual mode the engine never places an autonomous order.
+    // In approval mode it parks a concrete, risk-sized proposal for the owner. Only
+    // in autonomous mode — and only when validation did not escalate — does it act.
+    const approvedIntent = { ...proposed, amount: risk.approvedAmount };
+    if (this.tradingMode === "manual") {
+      this.opts.log.debug("manual mode: signal surfaced, not executed");
+      return;
+    }
+    if (this.tradingMode === "approval" || validation.outcome === "escalate") {
+      const proposal = await insertProposal({
+        symbol: approvedIntent.symbol,
+        side: approvedIntent.side,
+        amount: approvedIntent.amount,
+        durationSec: approvedIntent.durationSec ?? 0,
+        strategyId: approvedIntent.strategyId ?? null,
+        rationale: [
+          approvedIntent.rationale ?? "",
+          validation.outcome === "escalate" ? `Flagged: ${validation.reasons.join(" ")}` : "",
+        ].filter(Boolean).join(" "),
+        mode: this.mode,
+        referencePrice: this.lastPrice,
+        ttlSec: this.opts.tickSeconds ? Math.max(120, this.opts.tickSeconds * 4) : 300,
+      });
+      if (proposal) {
+        await insertNotification({
+          severity: "info",
+          title: "Trade ready for your approval",
+          body: `${approvedIntent.side.toUpperCase()} ${approvedIntent.symbol} for ${approvedIntent.amount.toFixed(2)}${validation.outcome === "escalate" ? ` — ${validation.reasons[0]}` : ""}.`,
+          category: "phirst2",
+          meta: { proposalId: proposal.id },
+        });
+      }
+      this.opts.log.info("trade proposal queued", { side: approvedIntent.side, amount: approvedIntent.amount, escalated: validation.outcome === "escalate" });
       return;
     }
 
@@ -561,6 +653,30 @@ export class TradingEngine {
     const order = await executeIntent(deps, { ...proposed, amount: risk.approvedAmount });
     this.opts.log.info("engine order submitted", { orderId: order.id, status: order.status, amount: risk.approvedAmount });
     await this.refreshStats();
+  }
+
+  /** Spread as a fraction of price, or null when the adapter does not publish one. */
+  private async spreadFraction(): Promise<number | null> {
+    if (!this.market) return null;
+    const spread = await this.market.spread(this.opts.symbol);
+    if (spread === null || this.lastPrice === null || this.lastPrice <= 0) return null;
+    return spread / this.lastPrice;
+  }
+
+  /** Orders placed in the last hour, for abnormal-activity detection. */
+  private async ordersLastHour(): Promise<number> {
+    const rows = await listOrders(200, { mode: this.mode });
+    const cutoff = Date.now() - 3_600_000;
+    return rows.filter((r) => new Date(String(r.created_at)).getTime() >= cutoff).length;
+  }
+
+  /** Seconds since the most recent settled losing trade, or null when there is none. */
+  private async secondsSinceLastLoss(): Promise<number | null> {
+    const settled = await listSettledOrders(this.mode, 50);
+    const lastLoss = settled.find((o) => (o.profit ?? 0) < 0);
+    if (!lastLoss) return null;
+    const at = lastLoss.settledAt ?? lastLoss.updatedAt;
+    return Math.max(0, (Date.now() - new Date(at).getTime()) / 1000);
   }
 
   private async baseAmount(): Promise<number> {
@@ -711,9 +827,11 @@ export class TradingEngine {
     const equityRows = await listEquity(this.mode, 500);
     const series = equityRows.map((r) => Number(r.equity)).reverse();
     const drawdown = series.length > 1 ? drawdownFromEquity(series) : this.drawdown;
+    const pendingProposals = await listPendingProposals();
     return {
       state: this.state,
       mode: this.mode,
+      tradingMode: this.tradingMode,
       reason: this.reason,
       symbol: this.opts.symbol,
       equity: this.equity,
@@ -730,6 +848,7 @@ export class TradingEngine {
       activeStrategyId: strategy ? String(strategy.id) : null,
       lastPrice: this.lastPrice,
       emergencyStop: this.state === "emergency",
+      pendingProposals,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -758,6 +877,23 @@ export class TradingEngine {
     const decision = evaluateRisk({ intent, config: riskConfig, context: await this.riskContext() });
     if (!decision.approved) {
       return { ok: false, message: `Risk engine vetoed the order: ${decision.reasons.join(" ")}` };
+    }
+    // The same independent validator that guards autonomous trades also guards manual
+    // ones. The owner is present, so an "escalate" outcome is surfaced rather than
+    // silently obeyed, but a "block" is a hard refusal on both paths.
+    const validation = validateTrade({
+      intent,
+      risk: decision,
+      verdicts: this.lastVerdicts,
+      spreadFraction: await this.spreadFraction(),
+      ordersLastHour: await this.ordersLastHour(),
+      secondsSinceLastLoss: await this.secondsSinceLastLoss(),
+      consecutiveLosses: this.lossStreak,
+      minExpirySec: this.active.adapter.capabilities().minExpirySec,
+      limits: DEFAULT_VALIDATION_LIMITS,
+    });
+    if (validation.outcome === "block") {
+      return { ok: false, message: `Validation refused the order: ${validation.reasons.join(" ")}` };
     }
     const caps = this.active.adapter.capabilities();
     if (caps.minExpirySec !== null && input.durationSec < caps.minExpirySec) {
@@ -792,6 +928,98 @@ export class TradingEngine {
 
   setAutoTrade(enabled: boolean): void {
     this.opts.autoTrade = enabled;
+  }
+
+  getTradingMode(): TradingMode {
+    return this.tradingMode;
+  }
+
+  /**
+   * Change how much authority PHIRST2 has. This is enforced by the backend; the UI only
+   * reflects it. The transition is made safe deliberately:
+   *   - it is refused while the engine is mid-trade (running), so no order is duplicated
+   *     or left half-placed across the change; the owner pauses first;
+   *   - leaving approval mode expires every pending proposal, so a decision the owner
+   *     never made cannot be executed later;
+   *   - the new mode is persisted before it takes effect, so a crash mid-change restores
+   *     the previous, safer value rather than a half-applied one.
+   */
+  async setTradingMode(mode: TradingMode): Promise<{ ok: boolean; message: string }> {
+    if (mode === this.tradingMode) return { ok: true, message: `Trading mode is already ${mode}.` };
+    if (this.state === "running") {
+      return { ok: false, message: "Pause the engine before changing trading mode, so no order is caught mid-flight." };
+    }
+    const previous = this.tradingMode;
+    try {
+      await setSetting("tradingMode", mode);
+    } catch (err) {
+      // Persist failed: keep the previous mode rather than applying an unrecorded change.
+      return { ok: false, message: `Could not persist the new trading mode: ${(err as Error).message}. The mode is unchanged (${previous}).` };
+    }
+    this.tradingMode = mode;
+    if (previous === "approval" && mode !== "approval") {
+      const expired = await expireAllPendingProposals(`Trading mode changed to ${mode}.`);
+      if (expired > 0) {
+        await insertNotification({
+          severity: "info",
+          title: "Pending proposals cleared",
+          body: `${expired} pending proposal(s) expired because the trading mode changed to ${mode}.`,
+          category: "phirst2",
+        });
+      }
+    }
+    await audit({ actor: "user", action: "engine.set_trading_mode", detail: { from: previous, to: mode } });
+    await insertNotification({
+      severity: "info",
+      title: `Trading mode: ${mode}`,
+      body: mode === "autonomous"
+        ? "PHIRST2 may execute qualifying trades within your risk limits."
+        : mode === "approval"
+          ? "PHIRST2 will prepare trades for your approval before executing."
+          : "PHIRST2 will analyse and recommend only; you execute.",
+      category: "phirst2",
+    });
+    this.opts.log.warn("trading authority changed", { from: previous, to: mode });
+    return { ok: true, message: `Trading mode is now ${mode}.` };
+  }
+
+  /** Approve a pending proposal and execute exactly what it describes, once. */
+  async approveProposal(id: string): Promise<{ ok: boolean; message: string; orderId?: string }> {
+    if (this.state === "emergency") return { ok: false, message: "Emergency stop is engaged." };
+    const existing = await getProposal(id);
+    if (!existing) return { ok: false, message: "Proposal not found." };
+    if (existing.status !== "pending") return { ok: false, message: `Proposal is already ${existing.status}.` };
+    if (new Date(existing.expiresAt).getTime() < Date.now()) {
+      return { ok: false, message: "Proposal has expired. Ask PHIRST2 for a fresh one." };
+    }
+    // Claim it first: only a still-pending proposal can be claimed, so a double tap or
+    // two owners cannot both execute it.
+    const claimed = await claimProposal(id);
+    if (!claimed) return { ok: false, message: "Proposal was already decided." };
+
+    const result = await this.manualOrder({
+      side: claimed.side,
+      amount: claimed.amount,
+      durationSec: claimed.durationSec,
+      origin: "manual",
+      symbol: claimed.symbol,
+    });
+    if (result.orderId) await attachProposalOrder(claimed.id, result.orderId);
+    await audit({ actor: "user", action: "proposal.approve", target: id, detail: { ok: result.ok, orderId: result.orderId ?? null } });
+    return result;
+  }
+
+  async rejectProposalById(id: string): Promise<{ ok: boolean; message: string }> {
+    const done = await rejectProposal(id);
+    await audit({ actor: "user", action: "proposal.reject", target: id, detail: { ok: done } });
+    return done ? { ok: true, message: "Proposal rejected." } : { ok: false, message: "Proposal was already decided." };
+  }
+
+  /** Drop stale proposals. Called on the heartbeat so expired ones do not linger. */
+  private async sweepProposals(): Promise<void> {
+    if (this.tradingMode !== "approval" || this.lastPrice === null) return;
+    const n = await expireStaleProposals(1.5, this.lastPrice);
+    if (n > 0) this.opts.log.info("expired stale proposals", { count: n });
   }
 
   setSymbol(symbol: string): void {

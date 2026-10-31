@@ -3,8 +3,17 @@
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/AuthGate";
 import { TradingShell } from "@/components/TradingShell";
+import { MemberShell } from "@/components/MemberShell";
 import { LaunchSequence, markLaunched, shouldLaunch } from "@/components/LaunchSequence";
 import { sound } from "@/lib/sound";
+import { useSession } from "@/lib/session";
+
+function Shell() {
+  // The role comes from the server via the session provider; a member never loads the
+  // trading shell, whose every request is owner-only.
+  const { isOwner } = useSession();
+  return isOwner ? <TradingShell /> : <MemberShell />;
+}
 
 export default function Page() {
   const [launching, setLaunching] = useState(false);
@@ -42,7 +51,7 @@ export default function Page() {
           }}
         />
       ) : null}
-      <TradingShell />
+      <Shell />
     </AuthGate>
   );
 }

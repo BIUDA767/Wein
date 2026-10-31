@@ -16,6 +16,46 @@ export type OrderStatus =
   | "unknown";
 export type TradeMode = "paper" | "live";
 
+/**
+ * How much authority PHIRST2 has to act on its own. This is a separate axis from
+ * `TradeMode` (paper vs live, which is about *where* an order is sent). The mode is
+ * enforced by the backend, not by the UI.
+ *
+ * - manual      PHIRST2 analyses and recommends; only the owner executes.
+ * - approval    PHIRST2 prepares a concrete proposal; the owner approves each one.
+ * - autonomous  PHIRST2 executes qualifying trades within the configured limits.
+ */
+export type TradingMode = "manual" | "approval" | "autonomous";
+
+export const TRADING_MODES: TradingMode[] = ["manual", "approval", "autonomous"];
+
+export function isTradingMode(v: unknown): v is TradingMode {
+  return v === "manual" || v === "approval" || v === "autonomous";
+}
+
+/** Status of a prepared trade awaiting the owner's decision. */
+export type ProposalStatus = "pending" | "approved" | "rejected" | "expired" | "blocked";
+
+export interface TradeProposal {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  amount: number;
+  durationSec: number;
+  strategyId: string | null;
+  rationale: string | null;
+  mode: TradeMode;
+  status: ProposalStatus;
+  /** Price at the time the proposal was prepared, used to expire stale ones. */
+  referencePrice: number | null;
+  /** Set when the proposal was blocked by the validation layer. */
+  blockReason: string | null;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  orderId: string | null;
+}
+
 export interface Instrument {
   symbol: string;
   name: string;

@@ -6,6 +6,7 @@ import type { BrokerAdapter } from "@phirst/brokers";
 export class MarketDataService {
   private candleCache = new Map<string, { at: number; candles: Candle[] }>();
   private instrumentsCache: { at: number; list: Instrument[] } | null = null;
+  private quoteCache = new Map<string, { at: number; spread: number | null }>();
   /** Set when the provider rate-limits us, so we stop hammering it. */
   private rateLimitedUntil = 0;
 
@@ -14,12 +15,14 @@ export class MarketDataService {
     private log: Logger,
     private candleTtlMs = 6000,
     private instrumentsTtlMs = 300_000,
+    private quoteTtlMs = 15_000,
   ) {}
 
   setAdapter(adapter: BrokerAdapter): void {
     this.adapter = adapter;
     this.candleCache.clear();
     this.instrumentsCache = null;
+    this.quoteCache.clear();
   }
 
   /**
@@ -57,6 +60,25 @@ export class MarketDataService {
     return this.adapter.getQuote(symbol);
   }
 
+  /**
+   * Absolute bid/ask spread for a symbol, or null when the provider does not publish
+   * both sides (some quote only a single mid price). Cached briefly so the trading
+   * loop does not add a network round-trip per tick.
+   */
+  async spread(symbol: string): Promise<number | null> {
+    const hit = this.quoteCache.get(symbol);
+    if (hit && Date.now() - hit.at < this.quoteTtlMs) return hit.spread;
+    try {
+      const q = await this.adapter.getQuote(symbol);
+      const spread = q.ask > 0 && q.bid > 0 && q.ask >= q.bid ? q.ask - q.bid : null;
+      this.quoteCache.set(symbol, { at: Date.now(), spread });
+      return spread;
+    } catch (err) {
+      this.log.debug("quote unavailable for spread", { symbol, error: (err as Error).message });
+      return hit?.spread ?? null;
+    }
+  }
+
   async instruments(): Promise<Instrument[]> {
     if (this.instrumentsCache && Date.now() - this.instrumentsCache.at < this.instrumentsTtlMs) {
       return this.instrumentsCache.list;
@@ -74,6 +96,7 @@ export class MarketDataService {
   invalidate(): void {
     this.candleCache.clear();
     this.instrumentsCache = null;
+    this.quoteCache.clear();
   }
 
   /** The most recent candles for a series without requesting anything. */
