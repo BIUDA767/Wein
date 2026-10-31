@@ -663,16 +663,23 @@ export function TradingShell() {
         </div>
       </nav>
 
-      <div className="fixed bottom-5 right-4 z-50 flex flex-col items-end gap-2">
+      <div className="fixed bottom-5 right-4 z-50 flex flex-col items-end gap-2.5">
         {v.transcript && (
-          <div className="max-w-[220px] rounded-2xl border border-white/12 bg-ink-800/95 px-3 py-2 text-[11.5px] leading-snug text-white/80 backdrop-blur">
+          <div className="max-w-[230px] rounded-2xl border border-white/12 px-3.5 py-2.5 text-[11.5px] leading-snug text-white/85 shadow-glass backdrop-blur-xl"
+            style={{ background: "linear-gradient(180deg, rgba(28,28,32,0.96) 0%, rgba(18,18,21,0.97) 100%)" }}
+          >
             {v.transcript}
           </div>
         )}
         <div className="relative">
+          {/* Cyan halo: PHIRST2 is the only element in the app that carries this colour. */}
+          <span
+            className="pointer-events-none absolute inset-[-9px] rounded-full"
+            style={{ background: "radial-gradient(circle, rgba(61,220,255,0.20) 0%, rgba(61,220,255,0.06) 48%, transparent 72%)" }}
+          />
           <Avatar state={avatarState} size={64} urgency={urgency} onClick={() => setConsoleOpen(true)} speech={v.speechRef} />
           {notifications.length > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ruby-500 px-1 text-[10px] font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-ink-950/60 bg-ruby-500 px-1 text-[10px] font-bold text-white shadow-rubyglow">
               {notifications.length > 9 ? "9+" : notifications.length}
             </span>
           )}
