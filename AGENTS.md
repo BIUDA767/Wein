@@ -253,3 +253,10 @@ the behaviour it protects.
     so the UI never shows a duration that was not placed.
 69. The paper simulator's market feed is the public Deriv socket and needs no app id; the
     adapter is built without one rather than falling back to a placeholder id.
+70. The integrations status reports the market-data provider *actually in effect* — the
+    owner's saved choice, then the environment default, guarded by whether Twelve Data is
+    usable — never the stale boot-time config value. A capability report must not drift from
+    what the engine is doing.
+71. The advisory LLM call on the decision path is bounded by `PHIRST_LLM_TIMEOUT_MS`
+    (default 8000). A slow or rate-limited model must never hold the trading loop open; the
+    panel records the sentiment agent as unavailable instead.

@@ -21,12 +21,13 @@ Concise index of durable facts. Detail lives in the daily logs.
 - `db/migrations` forward-only SQL (0001 base, 0002 platform).
 
 ## Build & verify
-- `npm run verify` = typecheck all workspaces + `vitest run` (currently 204 tests / 17 files).
+- `npm run verify` = typecheck all workspaces + `vitest run` (currently 219 tests / 18 files).
 - The DB-integration file is skipped without `TEST_DATABASE_URL`; to run it, first
   `DATABASE_URL=$TEST_DATABASE_URL npm run migrate` (the test DB must be at the same schema).
 - `NODE_ENV=production npm run build -w @phirst/web` — the sandbox's global
-  `NODE_ENV=development` breaks `next build`. The web app **inlines `@phirst/core`**, so a core
-  change needs a core+web rebuild and a `next start` restart or you get stale-bundle bugs.
+  `NODE_ENV=development` breaks `next build`. The web app is a **pure Next.js front end**
+  that calls the API over HTTP (`next.config` rewrites `/api/*` → `localhost:12001`); it does
+  **not** inline `@phirst/core`, so core edits need no web rebuild — just an API restart.
 - `scripts/wein-smoke.sh` — 25 end-to-end checks. `SMOKE_RESET=1` truncates platform tables
   first (via `sudo docker exec phirst-pg psql -U phirst -d phirst`) so it is repeatable.
 
@@ -37,6 +38,9 @@ Concise index of durable facts. Detail lives in the daily logs.
   proxies `/api/*` to `PHIRST_API_INTERNAL ?? http://localhost:12001`.
 - Start: `npm run start:api` (root, tsx) and `npm run start -w @phirst/web` from `apps/web`.
   Logs go to `.run/` (gitignored). Web is served on the exposed `work-1` host (port 12000).
+- **`npm run start:api` does not read `.env`,** and the persistent shell starts with a stale
+  snapshot of it exported. After editing `.env` run `set -a; . ./.env; set +a` *then* launch,
+  and confirm with `tr '\0' '\n' < /proc/<pid>/environ | grep PHIRST_`.
 - `PHIRST_MASTER_KEY` must decode to exactly 32 bytes (`openssl rand -base64 32`).
 - Login sets a `Secure` `aegis`-style session cookie; over plain HTTP curl must use a cookie jar.
 
@@ -136,3 +140,15 @@ Concise index of durable facts. Detail lives in the daily logs.
 - `corvex.fun` is a Vercel deployment returning `451 DEPLOYMENT_DISABLED` — not this app.
 - Suite **218 tests / 18 files**; `tests/deriv-adapter.test.ts` guards the three defects.
   AGENTS.md invariants 65–69 added.
+
+## Session 2026-10-31 (evening) — bug hunt on the "PIXEL-PERFECT" terminal thread
+- No dead buttons: every `<button>` in `apps/web/src/components/*.tsx` has a handler (the
+  push-to-talk control uses `onPointerDown/Up` by design).
+- Fixed: `integrations.status()` reported the boot-time provider, not the owner's live
+  switch — it now resolves saved-choice → env default → usable-provider guard, matching the
+  engine. Verified deriv↔twelve_data switches and is reported correctly.
+- Fixed: `gemini-2.5-pro` is retired (HTTP 404) for this key; replaced with
+  `gemini-3.1-pro-preview` in `config.ts`, `.env`, `.env.example`.
+- Live-tested the engine control surface: emergency-stop / reset / start / pause / reconcile /
+  trading-mode / symbol all behave, including the guard rails.
+- Suite now **219 tests / 18 files**; web production build clean. Committed `c93de99`.
