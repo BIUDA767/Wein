@@ -62,6 +62,25 @@ describe("agent panel", () => {
     expect(sentiment.summary).toMatch(/unavailable/i);
   });
 
+  it("does not let a slow model stall the panel past the deadline", async () => {
+    // A model that never answers must not hold the decision path open. The panel resolves
+    // on the deadline with the sentiment verdict marked unavailable, and the seven
+    // deterministic verdicts are still produced.
+    const never = new Promise<string>(() => {});
+    const stalled = {
+      available: true,
+      generateJson: () => never,
+    } as unknown as GeminiClient;
+    const started = Date.now();
+    const panel = await runAgentPanel(makeCtx({ llm: stalled }), { llmTimeoutMs: 50 });
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(1_000);
+    expect(panel.verdicts.length).toBe(8);
+    const sentiment = panel.verdicts.find((v) => v.agent === "sentiment_analysis")!;
+    expect(sentiment.detail?.unavailable).toBe(true);
+    expect(sentiment.detail?.timeout).toBe(true);
+  });
+
   it("technical analysis confirms an aligned uptrend signal", () => {
     const v = technicalAnalysis(makeCtx());
     expect(v.supportive).toBe(true);

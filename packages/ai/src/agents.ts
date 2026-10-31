@@ -258,7 +258,11 @@ export interface PanelResult {
   llmUnavailable: boolean;
 }
 
-export async function runAgentPanel(ctx: AgentContext): Promise<PanelResult> {
+export async function runAgentPanel(ctx: AgentContext, opts: { llmTimeoutMs?: number } = {}): Promise<PanelResult> {
+  // The sentiment agent is the only part of the panel that leaves the process. It must
+  // never be able to stall the trading loop: a degraded or rate-limited model would
+  // otherwise hold every tick for the full request timeout. The deadline here is the
+  // caller's, so the loop stays responsive while the opinion is still allowed to arrive.
   const verdicts: AgentVerdict[] = [
     technicalAnalysis(ctx),
     quantitativeAnalysis(ctx),
@@ -267,9 +271,29 @@ export async function runAgentPanel(ctx: AgentContext): Promise<PanelResult> {
     executionManagement(ctx),
     performanceAnalysis(ctx),
     strategyManagement(ctx),
-    await sentimentAnalysis(ctx),
+    await withDeadline(sentimentAnalysis(ctx), opts.llmTimeoutMs ?? 8_000),
   ];
   return aggregatePanel(verdicts);
+}
+
+/**
+ * Await `work`, but resolve to a labelled "unavailable" verdict if it does not settle in
+ * time. The underlying request is left to finish on its own; it is not cancelled, because
+ * abandoning it has no cost while blocking the tick does.
+ */
+async function withDeadline(work: Promise<AgentVerdict>, timeoutMs: number): Promise<AgentVerdict> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<AgentVerdict>((resolve) => {
+    timer = setTimeout(
+      () => resolve(verdict("sentiment_analysis", true, 0, `Sentiment unavailable: the model did not respond within ${timeoutMs}ms.`, "llm", { unavailable: true, timeout: true })),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export function aggregatePanel(verdicts: AgentVerdict[]): PanelResult {

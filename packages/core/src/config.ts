@@ -32,6 +32,11 @@ export interface Config {
   telegramAllowedChatIds: string[];
   logLevel: LogLevel;
   engineTickMs: number;
+  /**
+   * Deadline for the LLM call on the trading decision path. Kept short: the agent panel is
+   * advisory and must not hold the tick loop open when the model is slow or rate limited.
+   */
+  llmTimeoutMs: number;
   paperStartingBalance: number;
 
   // --- Twelve Data (market data) ---------------------------------------------
@@ -122,7 +127,7 @@ export function loadConfig(): Config {
     sessionTtlHours: Number(opt("PHIRST_SESSION_TTL_HOURS", "72")),
     geminiApiKey: opt("GEMINI_API_KEY"),
     geminiModel: opt("PHIRST_GEMINI_MODEL", "gemini-3.5-flash") as string,
-    geminiFallbackModels: (opt("PHIRST_GEMINI_FALLBACK_MODELS", "gemini-flash-latest,gemini-2.5-pro") as string)
+    geminiFallbackModels: (opt("PHIRST_GEMINI_FALLBACK_MODELS", "gemini-flash-latest,gemini-3.1-pro-preview") as string)
       .split(",")
       .map((m) => m.trim())
       .filter(Boolean),
@@ -146,6 +151,7 @@ export function loadConfig(): Config {
       .filter(Boolean),
     logLevel,
     engineTickMs: Number(opt("PHIRST_ENGINE_TICK_MS", "1000")),
+    llmTimeoutMs: Number(opt("PHIRST_LLM_TIMEOUT_MS", "8000")),
     paperStartingBalance: Number(opt("PHIRST_PAPER_BALANCE", "10000")),
 
     twelveDataApiKey: opt("TWELVE_DATA_API_KEY"),

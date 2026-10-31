@@ -29,6 +29,18 @@ export interface EmailDeliveryInput {
   category: "security" | "auth" | "system" | "test";
 }
 
+/**
+ * The market-data provider actually in effect. The owner's saved choice wins; the
+ * environment default applies until a choice is saved. A Twelve Data preference is only
+ * honoured when the provider is usable, mirroring `resolveMarketDataProvider`, so the
+ * capability report cannot drift from what the engine is really doing.
+ */
+async function effectiveMarketDataProvider(config: Config, twelveDataUsable: boolean): Promise<"deriv" | "twelve_data"> {
+  const saved = await getSetting<string>("marketDataProvider");
+  const preferred = saved === "twelve_data" || config.marketDataProvider === "twelve_data" ? "twelve_data" : "deriv";
+  return preferred === "twelve_data" && !twelveDataUsable ? "deriv" : preferred;
+}
+
 export class IntegrationsService {
   readonly resend: ResendClient;
   readonly supabase: SupabaseClient;
@@ -150,7 +162,9 @@ export class IntegrationsService {
     return {
       marketData: {
         configured: Boolean(this.config.twelveDataApiKey),
-        provider: this.config.marketDataProvider,
+        // Report the provider actually in effect. The owner can switch it at runtime and
+        // the choice is persisted, so the boot-time config value alone would be stale.
+        provider: await effectiveMarketDataProvider(this.config, Boolean(this.twelveData?.available)),
         twelveData: this.twelveData ? { ...this.twelveData.status(), usage: twelveUsage } : null,
         executionIsSeparate: true,
         note: "Market data and order execution are separate integrations. Twelve Data supplies prices; the active broker executes orders.",

@@ -78,6 +78,11 @@ export interface EngineOptions {
   marketData?: MarketDataProvider | null;
   /** Which provider the owner prefers, when a market-data provider is configured. */
   marketDataProviderId?: "deriv" | "twelve_data";
+  /**
+   * Deadline for the one LLM call on the decision path. The agent panel is advisory, so a
+   * slow or rate-limited model must never hold the trading loop open for its full timeout.
+   */
+  llmTimeoutMs?: number;
 }
 
 export interface EngineSnapshot {
@@ -608,7 +613,7 @@ export class TradingEngine {
       requestedDurationSec: proposed.durationSec ?? null,
       llm: this.opts.gemini,
     };
-    const panel = await runAgentPanel(agentCtx);
+    const panel = await runAgentPanel(agentCtx, { llmTimeoutMs: this.opts.llmTimeoutMs });
     this.lastVerdicts = panel.verdicts;
     await this.persistVerdicts(panel.verdicts, this.opts.symbol);
 
@@ -1098,6 +1103,17 @@ export class TradingEngine {
   setSymbol(symbol: string): void {
     this.opts.symbol = symbol;
     this.market?.invalidate();
+  }
+
+  /**
+   * Re-read the owner's market-data preference and rebuild the provider in place. The
+   * preference is persisted by the integrations route, but the engine holds its own copy
+   * in `opts`; without this the switch would be recorded and never applied.
+   */
+  async applyMarketDataProvider(): Promise<void> {
+    const saved = await getSetting<string>("marketDataProvider");
+    this.opts.marketDataProviderId = saved === "twelve_data" ? "twelve_data" : "deriv";
+    await this.refreshBroker();
   }
 
   /** Force a reconciliation pass, e.g. after reconnecting. */

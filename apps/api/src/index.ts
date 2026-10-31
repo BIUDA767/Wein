@@ -81,6 +81,7 @@ async function main(): Promise<void> {
     tradingMode,
     marketData: integrations.twelveData,
     marketDataProviderId,
+    llmTimeoutMs: config.llmTimeoutMs,
   });
   await engine.init();
 

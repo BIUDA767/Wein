@@ -99,8 +99,9 @@ export function registerIntegrationRoutes(
         return;
       }
       await setSetting("marketDataProvider", provider);
+      await engine.applyMarketDataProvider();
       await audit({ actor: "user", action: "integrations.market_data_provider", detail: { provider }, ip });
-      json(res, 200, { ok: true, provider, note: "The engine applies this on its next broker refresh." });
+      json(res, 200, { ok: true, provider, note: "The engine is now using this provider." });
     })();
   });
 
