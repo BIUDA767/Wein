@@ -155,8 +155,9 @@ export async function revokeInvite(code: string): Promise<boolean> {
 }
 
 /**
- * Redeem an invite. Runs inside a transaction with a row lock so two simultaneous
- * redemptions of the same code cannot both succeed.
+ * Redeem an invite. A single conditional UPDATE, so the row is claimed atomically:
+ * two simultaneous redemptions of the same code cannot both succeed because only one
+ * statement can see `used_at IS NULL` and set it.
  */
 export async function redeemInvite(code: string, userId: string): Promise<boolean> {
   const rows = await query<Row>(
@@ -295,9 +296,8 @@ export async function createComment(input: { postId: string; authorId: string; b
   return id;
 }
 
-export async function hideComment(commentId: string, byUserId: string): Promise<void> {
+export async function hideComment(commentId: string): Promise<void> {
   await exec("UPDATE comments SET hidden_at = now() WHERE id = $1", [commentId]);
-  void byUserId;
 }
 
 // --- Private messaging --------------------------------------------------------

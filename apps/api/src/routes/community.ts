@@ -193,7 +193,8 @@ export function registerCommunityRoutes(router: Router, log: Logger): void {
         error(res, 403, "Only a moderator can remove a comment. Contact a moderator to report it.");
         return;
       }
-      await hideComment(params.id!, userId!);
+      void userId;
+      await hideComment(params.id!);
       json(res, 200, { ok: true });
     })();
   });
