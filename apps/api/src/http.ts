@@ -9,7 +9,13 @@ export interface RequestContext {
   ip: string;
   cookies: Record<string, string>;
   params: Record<string, string>;
+  /** Authenticated user id. Undefined on public routes. */
+  userId?: string;
+  /** Authenticated role. Undefined on public routes. */
+  role?: UserRole;
 }
+
+export type UserRole = "owner" | "moderator" | "member";
 
 export type Handler = (ctx: RequestContext) => Promise<void> | void;
 
@@ -18,6 +24,10 @@ export interface Route {
   pattern: string;
   handler: Handler;
   auth: boolean;
+  /** Route is restricted to the platform owner. */
+  ownerOnly: boolean;
+  /** Route is restricted to the owner or an appointed moderator. */
+  moderatorOnly: boolean;
 }
 
 export function json(res: ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}): void {
@@ -91,22 +101,45 @@ export class Router {
 
   constructor(private log: Logger) {}
 
-  add(method: string, pattern: string, handler: Handler, auth = true): void {
-    this.routes.push({ method, pattern, handler, auth });
+  add(
+    method: string,
+    pattern: string,
+    handler: Handler,
+    auth = true,
+    guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {},
+  ): void {
+    this.routes.push({
+      method,
+      pattern,
+      handler,
+      auth,
+      ownerOnly: guard.ownerOnly ?? false,
+      moderatorOnly: guard.moderatorOnly ?? false,
+    });
   }
 
-  get(pattern: string, handler: Handler, auth = true) { this.add("GET", pattern, handler, auth); }
-  post(pattern: string, handler: Handler, auth = true) { this.add("POST", pattern, handler, auth); }
-  put(pattern: string, handler: Handler, auth = true) { this.add("PUT", pattern, handler, auth); }
-  patch(pattern: string, handler: Handler, auth = true) { this.add("PATCH", pattern, handler, auth); }
-  delete(pattern: string, handler: Handler, auth = true) { this.add("DELETE", pattern, handler, auth); }
+  get(pattern: string, handler: Handler, auth = true, guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {}) {
+    this.add("GET", pattern, handler, auth, guard);
+  }
+  post(pattern: string, handler: Handler, auth = true, guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {}) {
+    this.add("POST", pattern, handler, auth, guard);
+  }
+  put(pattern: string, handler: Handler, auth = true, guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {}) {
+    this.add("PUT", pattern, handler, auth, guard);
+  }
+  patch(pattern: string, handler: Handler, auth = true, guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {}) {
+    this.add("PATCH", pattern, handler, auth, guard);
+  }
+  delete(pattern: string, handler: Handler, auth = true, guard: { ownerOnly?: boolean; moderatorOnly?: boolean } = {}) {
+    this.add("DELETE", pattern, handler, auth, guard);
+  }
 
   setNotFound(handler: Handler): void {
     this.notFound = handler;
   }
 
-  /** Set by the app: resolves a session cookie to a user id, or null. */
-  authenticate: (token: string) => Promise<string | null> = async () => null;
+  /** Set by the app: resolves a session cookie to an identity, or null. */
+  authenticate: (token: string) => Promise<{ userId: string; role: UserRole } | null> = async () => null;
 
   listen(port: number, host = "0.0.0.0"): Promise<void> {
     const server = createServer((req, res) => {
@@ -132,18 +165,29 @@ export class Router {
       if (!params) continue;
       matched = true;
 
+      let identity: { userId: string; role: UserRole } | null = null;
       if (route.auth) {
         const token = cookies["phirst_session"] ?? (req.headers.authorization?.replace(/^Bearer\s+/i, "") ?? "");
-        const userId = token ? await this.authenticate(token) : null;
-        if (!userId) {
+        identity = token ? await this.authenticate(token) : null;
+        if (!identity) {
           error(res, 401, "Authentication required");
+          return;
+        }
+        // Authorisation is enforced here, not in the handler, so a new route cannot
+        // accidentally omit its role check.
+        if (route.ownerOnly && identity.role !== "owner") {
+          error(res, 403, "Owner permission required.");
+          return;
+        }
+        if (route.moderatorOnly && identity.role !== "owner" && identity.role !== "moderator") {
+          error(res, 403, "Moderator permission required.");
           return;
         }
       }
 
       try {
         const body = req.method === "GET" || req.method === "HEAD" ? null : await readBody(req);
-        await route.handler({ req, res, url, body, ip, cookies, params });
+        await route.handler({ req, res, url, body, ip, cookies, params, userId: identity?.userId, role: identity?.role });
       } catch (err) {
         const message = (err as Error).message;
         this.log.error("request failed", { path: url.pathname, method: req.method, error: message });

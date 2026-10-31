@@ -7,3 +7,4 @@ export * from "./db/pool.ts";
 export * from "./db/repo.ts";
 export * from "./risk/engine.ts";
 export * from "./strategies/registry.ts";
+export * from "./db/platform.ts";

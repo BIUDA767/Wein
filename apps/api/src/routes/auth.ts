@@ -13,6 +13,12 @@ import {
   issueSessionToken,
   hashSessionToken,
   audit,
+  setUserRole,
+  getUserRole,
+  getUserProfile,
+  redeemInvite,
+  updateProfile,
+  deleteUser,
   type Config,
   type Logger,
 } from "@phirst/core";
@@ -43,7 +49,7 @@ export function registerAuthRoutes(router: Router, config: Config, log: Logger):
   router.get("/api/auth/status", ({ res }: RequestContext) => {
     void (async () => {
       const users = await countUsers();
-      json(res, 200, { ownerExists: users > 0 });
+      json(res, 200, { ownerExists: users > 0, inviteRequired: users > 0 });
     })();
   }, false);
 
@@ -65,12 +71,65 @@ export function registerAuthRoutes(router: Router, config: Config, log: Logger):
         return;
       }
       const user = await createUser(username.trim(), JSON.stringify(hashPassword(password)));
+      // The account created here is the platform owner. The unique partial index
+      // on users(role) WHERE role='owner' guarantees there can never be two.
+      await setUserRole(user.id, "owner");
       const token = issueSessionToken(config.sessionTtlHours);
       await createSession(user.id, token.hash, token.expiresAt, null);
       setSessionCookie(res, token.token, token.expiresAt, secureCookie);
       await audit({ actor: user.username, action: "auth.setup", ip });
       log.info("owner account created", { username: user.username });
       json(res, 201, { ok: true, username: user.username });
+    })();
+  }, false);
+
+  /**
+   * Invite-only registration. The owner account is created once through /setup; every
+   * other account must present a valid, unused, unrevoked invite code. This is the only
+   * path that creates a non-owner account.
+   */
+  router.post("/api/auth/register", ({ res, body, ip }: RequestContext) => {
+    void (async () => {
+      const { username, password, inviteCode, displayName } = (body ?? {}) as {
+        username?: string;
+        password?: string;
+        inviteCode?: string;
+        displayName?: string;
+      };
+      if (!username || username.trim().length < 3) {
+        error(res, 400, "Username must be at least 3 characters.");
+        return;
+      }
+      if (!password || password.length < 12) {
+        error(res, 400, "Password must be at least 12 characters.");
+        return;
+      }
+      if (!inviteCode || !inviteCode.trim()) {
+        error(res, 403, "Registration is invite-only. An invite code is required.");
+        return;
+      }
+      const existing = await findUserByUsername(username.trim());
+      if (existing) {
+        error(res, 409, "That username is taken.");
+        return;
+      }
+      // Create the user first, then redeem. If the code was already consumed the
+      // redeem fails and the freshly created row is removed, so a bad code cannot
+      // leave a half-registered account behind.
+      const user = await createUser(username.trim(), JSON.stringify(hashPassword(password)));
+      const ok = await redeemInvite(inviteCode.trim(), user.id);
+      if (!ok) {
+        await deleteUser(user.id).catch(() => {});
+        error(res, 403, "That invite code is invalid, already used, revoked or expired.");
+        return;
+      }
+      if (displayName && displayName.trim()) await updateProfile(user.id, { displayName: displayName.trim() });
+      const token = issueSessionToken(config.sessionTtlHours);
+      await createSession(user.id, token.hash, token.expiresAt, null);
+      setSessionCookie(res, token.token, token.expiresAt, secureCookie);
+      await audit({ actor: user.username, action: "auth.register", detail: { invite: inviteCode.trim() }, ip });
+      log.info("member registered", { username: user.username });
+      json(res, 201, { ok: true, username: user.username, role: "member" });
     })();
   }, false);
 
@@ -94,7 +153,8 @@ export function registerAuthRoutes(router: Router, config: Config, log: Logger):
       await createSession(user.id, token.hash, token.expiresAt, String(req.headers["user-agent"] ?? ""));
       setSessionCookie(res, token.token, token.expiresAt, secureCookie);
       await audit({ actor: user.username, action: "auth.login", ip });
-      json(res, 200, { ok: true, username: user.username });
+      const role = (await getUserRole(user.id)) ?? "member";
+      json(res, 200, { ok: true, username: user.username, role });
     })();
   }, false);
 
@@ -169,7 +229,22 @@ export function registerAuthRoutes(router: Router, config: Config, log: Logger):
         error(res, 401, "Session expired.");
         return;
       }
-      json(res, 200, { authenticated: true });
+      const profile = await getUserProfile(session.user_id);
+      if (!profile || profile.suspendedAt) {
+        clearSessionCookie(res);
+        error(res, 401, "Account is not active.");
+        return;
+      }
+      json(res, 200, {
+        authenticated: true,
+        user: {
+          id: profile.id,
+          username: profile.username,
+          displayName: profile.displayName,
+          role: profile.role,
+          avatarSeed: profile.avatarSeed,
+        },
+      });
     })();
   }, false);
 }

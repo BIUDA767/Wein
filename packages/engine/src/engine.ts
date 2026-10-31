@@ -22,6 +22,7 @@ import {
   acquireLeaderLock,
   releaseLeaderLock,
   holdsLeaderLock,
+  getPlatformFlag,
   type EngineState,
   type RiskContext,
   type StrategySignal,
@@ -241,6 +242,15 @@ export class TradingEngine {
     if (mode === "live") {
       if (confirmation !== "ENABLE LIVE TRADING") {
         return { ok: false, message: 'Live trading requires the exact confirmation phrase "ENABLE LIVE TRADING".' };
+      }
+      // The owner's global master switch. When it is off, no account on the platform can
+      // go live, regardless of that account's own settings. Only the owner can change it.
+      const globallyEnabled = await getPlatformFlag<boolean>("liveTradingEnabled", false);
+      if (!globallyEnabled) {
+        return {
+          ok: false,
+          message: "Live trading is disabled platform-wide by the owner. It must be enabled before any account can go live.",
+        };
       }
       if (this.mode === "live") return { ok: true, message: "Already in live mode." };
       if (!this.active) return { ok: false, message: "Configure and verify a broker before enabling live trading." };
@@ -544,6 +554,10 @@ export class TradingEngine {
       this.opts.log.debug("skipping order: this process does not hold the engine leader lock");
       return;
     }
+    if (this.mode === "live" && !(await getPlatformFlag<boolean>("liveTradingEnabled", false))) {
+      this.opts.log.debug("skipping order: global live trading is disabled by the owner");
+      return;
+    }
     const order = await executeIntent(deps, { ...proposed, amount: risk.approvedAmount });
     this.opts.log.info("engine order submitted", { orderId: order.id, status: order.status, amount: risk.approvedAmount });
     await this.refreshStats();
@@ -751,6 +765,9 @@ export class TradingEngine {
     }
     if (!this.brokerConnected && this.mode === "live") {
       return { ok: false, message: "Broker is not connected; live orders are blocked." };
+    }
+    if (this.mode === "live" && !(await getPlatformFlag<boolean>("liveTradingEnabled", false))) {
+      return { ok: false, message: "Live trading is disabled platform-wide by the owner." };
     }
     const deps = this.execDeps();
     if (!holdsLeaderLock(this.leader)) {

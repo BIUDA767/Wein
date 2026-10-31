@@ -10,6 +10,8 @@ import {
   getActiveBroker,
   listBrokers,
   getSetting,
+  getUserRole,
+  getUserProfile,
 } from "@phirst/core";
 import { GeminiClient } from "@phirst/ai";
 import { TradingEngine } from "@phirst/engine";
@@ -21,6 +23,8 @@ import { registerMarketRoutes } from "./routes/market.ts";
 import { registerPhirstRoutes } from "./routes/phirst.ts";
 import { registerTelegramRoutes } from "./routes/telegram.ts";
 import { registerPreferencesRoutes } from "./routes/preferences.ts";
+import { registerAdminRoutes } from "./routes/admin.ts";
+import { registerCommunityRoutes } from "./routes/community.ts";
 import { TelegramBot } from "./lib/telegram.ts";
 
 async function main(): Promise<void> {
@@ -62,7 +66,11 @@ async function main(): Promise<void> {
     const session = await findSession(hashSessionToken(token));
     if (!session) return null;
     if (new Date(session.expires_at).getTime() < Date.now()) return null;
-    return session.user_id;
+    const role = (await getUserRole(session.user_id)) ?? "member";
+    // A suspended member is treated as unauthenticated everywhere.
+    const profile = await getUserProfile(session.user_id);
+    if (profile?.suspendedAt) return null;
+    return { userId: session.user_id, role };
   };
 
   const onBrokersChanged = async () => {
@@ -85,6 +93,8 @@ async function main(): Promise<void> {
     }
   });
   registerPreferencesRoutes(router);
+  registerAdminRoutes(router, config, log);
+  registerCommunityRoutes(router, log);
   registerTelegramRoutes(router, telegram, log);
   await telegram.start();
 
