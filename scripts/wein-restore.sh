@@ -9,6 +9,9 @@
 #
 set -u
 cd "$(dirname "$0")/.." || exit 1
+# Load the current .env so every service this script starts sees it. The sandbox only
+# injects env at shell start, so a change to .env would otherwise be ignored.
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 PORT_API="${PHIRST_API_PORT:-12001}"
 PG_NAME="${PG_CONTAINER:-phirst-pg}"
 PG_USER=phirst

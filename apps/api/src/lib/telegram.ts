@@ -4,10 +4,10 @@ import {
   consumeTelegramLinkCode,
   listTelegramLinks,
   deleteTelegramLink,
-  insertNotification,
   audit,
   type Config,
   type Logger,
+  type NotificationInput,
 } from "@phirst/core";
 import type { TradingEngine } from "@phirst/engine";
 
@@ -316,8 +316,46 @@ export class TelegramBot {
       if (!permissions.includes("read")) continue;
       await this.sendMessage(String(link.chat_id), `<b>${title}</b>\n${body}`);
     }
-    await insertNotification({ severity: "info", title: "Telegram broadcast sent", body: title, category: "telegram" });
   }
+
+  /**
+   * Deliver a persisted engine notification to Telegram. Only events that matter to the
+   * owner are forwarded: critical and warning severities, and PHIRST2's own proactive
+   * alerts. Routine info rows stay in the web app so the chat is not noisy. The owner's
+   * allow-listed chat id is always included even before a link is completed, so a risk
+   * event cannot go unseen.
+   */
+  async notifyChannel(n: NotificationInput): Promise<void> {
+    if (!this.configured) return;
+    if (!shouldForwardToTelegram(n)) return;
+
+    const text = formatTelegramAlert(n);
+    const recipients = new Set<string>(this.config.telegramAllowedChatIds);
+    for (const link of await listTelegramLinks()) {
+      const permissions = (link.permissions as string[]) ?? [];
+      if (permissions.includes("read")) recipients.add(String(link.chat_id));
+    }
+    for (const chatId of recipients) await this.sendMessage(chatId, text);
+  }
+}
+
+/**
+ * Whether a notification is important enough to interrupt the owner on Telegram. Routine
+ * info rows are left in the web app so the chat stays signal, not noise.
+ */
+export function shouldForwardToTelegram(n: { severity: string; category: string }): boolean {
+  return n.severity === "critical" || n.severity === "warning" || n.severity === "warn" || n.category === "phirst2";
+}
+
+/** Format a notification for Telegram HTML parse mode, escaping the dynamic text. */
+export function formatTelegramAlert(n: { severity: string; title: string; body: string }): string {
+  const prefix = n.severity === "critical" ? "🔴" : n.severity === "warning" || n.severity === "warn" ? "🟠" : "ℹ️";
+  return `${prefix} <b>${escapeHtml(n.title)}</b>\n${escapeHtml(n.body)}`;
+}
+
+/** Telegram HTML parse mode requires these three characters escaped in dynamic text. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export { ALL_PERMISSIONS };

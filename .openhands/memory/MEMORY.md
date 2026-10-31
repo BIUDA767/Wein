@@ -51,3 +51,10 @@ Concise index of durable facts. Detail lives in the daily logs.
 - Verified live paper trading end-to-end on `R_100`: order → open → settled fill, profit,
   equity update, performance report. Real market data, no simulation of results.
 - Invariants 31–36 cover the new safety surface.
+
+## Authorization model (owner vs member)
+- The trading surface is owner-only, enforced by `router.owner.*` (`ownerOnly` guard) in
+  `apps/api/src/http.ts` — see AGENTS.md invariant 42. Client role checks decide rendering
+  only. A member loads `MemberShell`; the owner loads `TradingShell`.
+- When adding a member-visible screen, grep its `/api/...` calls against the owner-gated set,
+  or the member sees empty panels. Commit `24b7b4f`.

@@ -663,18 +663,40 @@ export async function listVerdicts(limit = 50): Promise<Row[]> {
 
 // --- Notifications ------------------------------------------------------------
 
-export async function insertNotification(n: {
+/**
+ * A single optional fan-out sink. The engine writes every meaningful event with
+ * `insertNotification`; the API layer registers a sink here so those events also reach
+ * an external channel (Telegram). Keeping it here means a new notification is delivered
+ * everywhere without every call site remembering to forward it.
+ */
+let notificationSink: ((n: NotificationInput) => Promise<void> | void) | null = null;
+
+export interface NotificationInput {
   severity: string;
   title: string;
   body: string;
   category: string;
   meta?: Record<string, unknown> | null;
-}): Promise<string> {
+}
+
+export function setNotificationSink(fn: ((n: NotificationInput) => Promise<void> | void) | null): void {
+  notificationSink = fn;
+}
+
+export async function insertNotification(n: NotificationInput): Promise<string> {
   const id = newId();
   await exec(
     `INSERT INTO notifications (id, severity, title, body, category, meta) VALUES ($1,$2,$3,$4,$5,$6)`,
     [id, n.severity, n.title, n.body, n.category, n.meta ? JSON.stringify(n.meta) : null],
   );
+  if (notificationSink) {
+    // Delivery is best-effort: a channel failure must never break the trade path.
+    try {
+      await notificationSink(n);
+    } catch {
+      /* swallow; the notification is already persisted */
+    }
+  }
   return id;
 }
 

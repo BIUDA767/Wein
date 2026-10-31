@@ -12,6 +12,7 @@ import {
   getSetting,
   getUserRole,
   getUserProfile,
+  setNotificationSink,
   type TradingMode,
 } from "@phirst/core";
 import { GeminiClient } from "@phirst/ai";
@@ -106,6 +107,11 @@ async function main(): Promise<void> {
   registerProfileRoutes(router, log);
   registerTelegramRoutes(router, telegram, log);
   await telegram.start();
+  // Every engine notification also reaches Telegram. Fire-and-forget: delivery must never
+  // add latency to the trading loop, and the notification is already persisted.
+  setNotificationSink((n) => {
+    telegram.notifyChannel(n).catch(() => {});
+  });
 
   // Health and diagnostics. Public so a supervisor can probe without a session.
   router.get("/api/health", ({ res }: { res: import("node:http").ServerResponse }) => {

@@ -5,6 +5,10 @@
 cd "$(dirname "$0")/.." || exit 1
 LOG=.run/supervise.log
 mkdir -p .run
+# Load .env here so a restarted service always sees the current file. The sandbox injects
+# the env only at shell start, so without this a change to .env is ignored until the pod
+# resets and the supervisor is restarted by hand.
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$1" >>"$LOG"; }
 up() { curl -s -m 3 -o /dev/null "http://localhost:$1$2"; }
 while true; do

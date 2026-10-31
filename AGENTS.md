@@ -159,4 +159,14 @@ the behaviour it protects.
     is never the enforcement point. A member therefore loads `MemberShell` (community,
     messages, support, own profile) and never receives an engine snapshot, so no member
     screen can show the owner's figures or offer a control it cannot use.
+43. Notifications fan out from one choke point. `insertNotification` in
+    `packages/core/src/db/repo.ts` is the single place every engine event is persisted, so
+    the API registers a sink there (`setNotificationSink`) that forwards to Telegram. A new
+    notification is delivered without each call site remembering to forward it, delivery is
+    best-effort so a channel failure cannot break the trade path, and only `critical` /
+    `warning` / `phirst2` events are forwarded so the chat stays signal rather than noise.
+44. The bot token is read from the environment only and never logged, committed or echoed.
+    Telegram delivery targets the owner's `TELEGRAM_ALLOWED_CHAT_IDS` plus linked chats that
+    hold the `read` permission; a chat must complete the `/start <code>` link before it can
+    receive or command anything.
 
