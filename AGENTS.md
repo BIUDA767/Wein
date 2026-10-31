@@ -170,3 +170,8 @@ the behaviour it protects.
     hold the `read` permission; a chat must complete the `/start <code>` link before it can
     receive or command anything.
 
+45. A Telegram link code is bound to the authenticated owner's real `users.id`. A
+    placeholder such as the literal string `"owner"` satisfies nothing: `telegram_links`
+    has a foreign key to `users(id)`, so the link insert fails and the chat stays
+    unlinked. The `/start` handler catches that failure, records it and tells the chat,
+    rather than leaving the member to guess why `/start` did not work.

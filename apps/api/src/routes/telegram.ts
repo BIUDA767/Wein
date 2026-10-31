@@ -25,17 +25,22 @@ export function registerTelegramRoutes(router: Router, bot: TelegramBot, log: Lo
   });
 
   /** Issue a one-time link code. The user sends /start <code> to the bot. */
-  router.owner.post("/api/telegram/link-code", ({ res, ip }: RequestContext) => {
+  router.owner.post("/api/telegram/link-code", ({ res, ip, userId }: RequestContext) => {
     void (async () => {
       if (!bot.configured) {
         error(res, 400, "TELEGRAM_BOT_TOKEN is not configured on the server. Set it and restart the API.");
         return;
       }
+      if (!userId) {
+        error(res, 401, "Authentication required.");
+        return;
+      }
       const code = newId().replace(/-/g, "").slice(0, 12);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      // The code is bound to the single owner user; the id is resolved at consume time.
-      await issueTelegramLinkCode(code, "owner", expiresAt);
-      await audit({ actor: "user", action: "telegram.link_code_issued", ip });
+      // Bind the code to the authenticated owner's real user id. A placeholder such as
+      // "owner" is not a users(id) and would fail the foreign key when the chat links.
+      await issueTelegramLinkCode(code, userId, expiresAt);
+      await audit({ actor: userId, action: "telegram.link_code_issued", ip });
       log.info("telegram link code issued");
       json(res, 200, { code, expiresAt: expiresAt.toISOString(), instructions: `Send "/start ${code}" to the bot.` });
     })();

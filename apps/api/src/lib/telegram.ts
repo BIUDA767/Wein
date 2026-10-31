@@ -176,7 +176,16 @@ export class TelegramBot {
         return;
       }
       // Default permissions exclude trade and emergency; the owner grants them in the web app.
-      await upsertTelegramLink(chatId, userId, ["read", "control"]);
+      try {
+        await upsertTelegramLink(chatId, userId, ["read", "control"]);
+      } catch (err) {
+        // Surface the real reason instead of leaving the chat stuck on "not linked".
+        this.lastError = (err as Error).message;
+        this.log.error("telegram link failed", { error: (err as Error).message, chatId });
+        await audit({ actor: from, action: "telegram.link_failed", detail: { chatId, error: (err as Error).message } });
+        await this.sendMessage(chatId, "Could not link this chat. The server rejected the link; check the API log.");
+        return;
+      }
       await audit({ actor: from, action: "telegram.linked", detail: { chatId } });
       await this.sendMessage(chatId, "Linked to PHIRST2. You can use /status, /positions, /pause, /resume, /stop and /help. Trading and emergency permissions must be granted in the web app.");
       return;
