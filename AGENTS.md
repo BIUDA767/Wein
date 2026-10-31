@@ -175,3 +175,52 @@ the behaviour it protects.
     has a foreign key to `users(id)`, so the link insert fails and the chat stays
     unlinked. The `/start` handler catches that failure, records it and tells the chat,
     rather than leaving the member to guess why `/start` did not work.
+
+46. The emergency stop is sticky. It is cleared only by `resetEmergency()`. `start()`,
+    `resume()`, `pause()`, `stop()` and `setMode()` all refuse while the engine is in the
+    `emergency` state, so no ordinary control can silently re-arm trading after a stop.
+    Telegram `/pause` and `/stop` report the engine's actual reply, not a fixed "done".
+47. Open exposure counts open fixed-expiry contracts, which live in `orders`, not the
+    `positions` table (empty for these contracts). `currentExposure` takes the larger of
+    the open-order total and the position total — never their sum, which would double-count
+    a mirrored position and order. A position-only figure would leave `maxExposure` inert.
+48. `consecutiveLossLimit` is enforced. `settleExpired` re-checks the streak after any
+    settlement and pauses when it reaches the limit. The risk engine separately de-risks
+    each trade after a loss; this is the hard stop, and it never resumes on its own.
+49. The voice accent is validated against `ALLOWED_ACCENTS` in `@phirst/ai`, the same list
+    the client offers, so a hand-crafted request cannot persist an accent the app cannot speak.
+50. Provider back-pressure is never masked by a cache. When a market-data provider has spent
+    its budget or returns 429, `TwelveDataProvider` throws `ProviderBackpressureError` and the
+    cache fallback is skipped, so a stale quote can never be presented as live. The service
+    matches this condition by type (`instanceof`), not by message text.
+51. The LLM client fails over on transient provider faults as well as retired models. A 404
+    (retired model), 429 (quota) or 5xx (capacity) moves to the next model in the chain;
+    400/403 stops, because every model would reject the same request or credential. The
+    provider's raw error body is logged but never surfaced in a user-facing error string.
+52. The floating PHIRST2 avatar sits above the tab bar (bottom offset), because it is a
+    fixed element at `z-50` and would otherwise intercept taps meant for the rightmost tab.
+53. The procedural avatar draws its figure in a 360-unit space centred on (180,180) and the
+    draw loop recentres by `-R/2` after scaling, so the head is centred and head sway pivots
+    about the middle. Omitting the recentre pushes the whole figure into the canvas corner.
+54. Deriv OAuth 2.0 (one-tap connect) is Authorization Code with PKCE (S256). The
+    `code_verifier` never leaves the server: it is encrypted into `oauth_states` before the
+    browser is redirected, and the token exchange happens only in the API process. The
+    browser receives a redirect carrying a short status word, never a token.
+55. An OAuth `state` is single-use. `consumeOAuthState` marks it consumed in the same
+    `UPDATE ... RETURNING` that reads it, so two concurrent callbacks cannot both exchange
+    the same authorization code. Unknown, replayed and expired states are refused identically.
+56. OAuth access tokens are sent without the `Deriv-App-ID` header; that header is for
+    Personal Access Tokens only. An OAuth 401 means the token expired, which is a
+    reconnect condition, not a bad-credential one, so it is not retried.
+57. Deriv issues no refresh token. The access token's `expires_in` is recorded at connect
+    time and a passed expiry is reported as `expired` before any API call fails, rather than
+    discovering it on the next order.
+58. Connecting a broker never silently replaces the active trading account. Selection only
+    claims the active slot when it is empty, and a manual switch while open orders or pending
+    proposals exist requires an explicit confirmation (`409` with `requiresConfirmation`).
+59. `credentials_enc` never leaves the server. Responses use `toPublicBroker`, so even the
+    ciphertext is absent from broker, health and diagnostic payloads.
+60. A connection is recorded as `connected` only after `verifyConnection` succeeds against
+    the provider. A token that fails verification is stored but marked `error`, and the UI
+    says so instead of showing a false success.
+

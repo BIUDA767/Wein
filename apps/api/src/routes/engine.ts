@@ -94,9 +94,9 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
   router.owner.post("/api/engine/pause", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { reason } = (body ?? {}) as { reason?: string };
-      await engine.pause(reason || "Paused by user.");
-      await audit({ actor: "user", action: "engine.pause_request", ip });
-      json(res, 200, { ok: true, message: "Engine paused." });
+      const result = await engine.pause(reason || "Paused by user.");
+      await audit({ actor: "user", action: "engine.pause_request", detail: { ok: result.ok }, ip });
+      json(res, result.ok ? 200 : 400, result);
     })();
   });
 
@@ -111,9 +111,9 @@ export function registerEngineRoutes(router: Router, engine: TradingEngine, conf
   router.owner.post("/api/engine/stop", ({ res, body, ip }: RequestContext) => {
     void (async () => {
       const { reason } = (body ?? {}) as { reason?: string };
-      await engine.stop(reason || "Stopped by user.");
-      await audit({ actor: "user", action: "engine.stop_request", ip });
-      json(res, 200, { ok: true, message: "Engine stopped." });
+      const result = await engine.stop(reason || "Stopped by user.");
+      await audit({ actor: "user", action: "engine.stop_request", detail: { ok: result.ok }, ip });
+      json(res, result.ok ? 200 : 400, result);
     })();
   });
 

@@ -90,6 +90,8 @@ export interface BrokerAccount {
   balance: number | null;
   loginid?: string;
   label?: string;
+  /** Provider-reported account status, e.g. Deriv's "active". Null when not reported. */
+  status?: string | null;
 }
 
 export interface TradeIntent {

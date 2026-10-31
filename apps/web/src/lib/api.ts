@@ -129,6 +129,38 @@ export interface BrokerRecord {
   lastError: string | null;
   capabilities: Record<string, unknown>;
   createdAt: string;
+  /** 'pat' (manually pasted token) or 'oauth' (Deriv authorization). */
+  authMethod: "pat" | "oauth";
+  /** ISO timestamp when an OAuth token stops working. Null for PAT connections. */
+  oauthExpiresAt: string | null;
+  /** True when the recorded expiry has passed and the account must be reconnected. */
+  oauthExpired: boolean;
+  /** Space-separated scopes granted at the provider. */
+  oauthScope: string | null;
+}
+
+export interface DerivOAuthConfig {
+  configured: boolean;
+  provider: string;
+  redirectUri: string | null;
+  scopes: string[];
+  authorizationEndpoint: string;
+  requiredEnv: string[];
+}
+
+export interface ActiveSelection {
+  brokerId: string | null;
+  accountRowId: string | null;
+  providerAccountId: string | null;
+  brokerLabel: string | null;
+  provider: string | null;
+}
+
+export interface ConnectionHealth {
+  expired: boolean;
+  expiresAt: string | null;
+  state: "none" | "connected" | "expired" | "error";
+  detail: string;
 }
 
 export interface ProviderSpec {
@@ -151,6 +183,7 @@ export interface AccountRecord {
   balance: string | number | null;
   loginid: string | null;
   label: string | null;
+  status: string | null;
   is_active: boolean;
 }
 
@@ -421,4 +454,65 @@ export interface ModerationNotice {
   actionId: string | null;
   acknowledgedAt: string | null;
   createdAt: string;
+}
+
+// --- External service integrations -------------------------------------------
+
+export interface TwelveDataStatus {
+  id: string;
+  displayName: string;
+  configured: boolean;
+  plan: string | null;
+  rateLimitPerMinute: number | null;
+  dailyLimit: number | null;
+  requestsUsedToday: number | null;
+  notes: string[];
+  usage: { plan: string | null; perMinute: number | null; perDay: number | null; usedToday: number | null } | null;
+}
+
+export interface IntegrationStatus {
+  marketData: {
+    configured: boolean;
+    provider: "deriv" | "twelve_data";
+    twelveData: TwelveDataStatus | null;
+    executionIsSeparate: boolean;
+    note: string;
+  };
+  email: {
+    configured: boolean;
+    from: string;
+    usingSharedSender: boolean;
+    domainVerified: boolean | null;
+    notes: string[];
+    ownerEmail: string | null;
+  };
+  gemini: { configured: boolean; model: string; fallbackModels: string[]; note: string };
+  supabase: {
+    configured: boolean;
+    url: string | null;
+    hasAnonKey: boolean;
+    hasServiceRoleKey: boolean;
+    jwksUrl: string | null;
+    notes: string[];
+    health: { ok: boolean; detail: string; keyRejected: boolean };
+    jwks: { ok: boolean; detail: string; keyCount: number };
+  };
+}
+
+export interface EmailLogRecord {
+  id: string;
+  provider: string;
+  toAddress: string;
+  subject: string;
+  category: string;
+  ok: boolean;
+  providerId: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface SupabaseIdentityRecord {
+  supabaseUserId: string;
+  email: string | null;
+  linkedAt: string;
 }

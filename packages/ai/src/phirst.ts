@@ -40,6 +40,13 @@ export const DEFAULT_VOICE_SETTINGS: PhirstVoiceSettings = {
   autoSpeakAlerts: true,
 };
 
+/**
+ * The accents the client can actually select. The browser picks the closest installed
+ * voice; the server stores only a value from this list, so a hand-crafted request cannot
+ * persist an accent the app has no way to speak.
+ */
+export const ALLOWED_ACCENTS = ["ja-JP-inspired", "en-US", "en-GB"] as const;
+
 export interface PhirstFacts {
   engineState: EngineState;
   mode: TradeMode;

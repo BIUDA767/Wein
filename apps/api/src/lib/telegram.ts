@@ -261,12 +261,13 @@ export class TelegramBot {
         return;
       }
 
-      case "/pause":
+      case "/pause": {
         if (needs("control")) return;
-        await this.engine.pause("Paused via Telegram.");
-        await audit({ actor: from, action: "telegram.pause", detail: { chatId } });
-        await this.sendMessage(chatId, "Engine paused.");
+        const r = await this.engine.pause("Paused via Telegram.");
+        await audit({ actor: from, action: "telegram.pause", detail: { chatId, ok: r.ok } });
+        await this.sendMessage(chatId, r.message);
         return;
+      }
 
       case "/resume": {
         if (needs("control")) return;
@@ -276,12 +277,13 @@ export class TelegramBot {
         return;
       }
 
-      case "/stop":
+      case "/stop": {
         if (needs("control")) return;
-        await this.engine.stop("Stopped via Telegram.");
-        await audit({ actor: from, action: "telegram.stop", detail: { chatId } });
-        await this.sendMessage(chatId, "Engine stopped.");
+        const r = await this.engine.stop("Stopped via Telegram.");
+        await audit({ actor: from, action: "telegram.stop", detail: { chatId, ok: r.ok } });
+        await this.sendMessage(chatId, r.message);
         return;
+      }
 
       case "/emergencystop":
         if (needs("emergency")) return;

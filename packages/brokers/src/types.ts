@@ -53,6 +53,13 @@ export interface BrokerCredentials {
   apiKey?: string;
   apiSecret?: string;
   accountId?: string;
+  /**
+   * How the token was obtained. `oauth` means it came from the provider's OAuth server and
+   * will expire; `pat` means a manually created token that does not. The adapter uses this
+   * to decide whether to send provider-specific headers, since Deriv requires a
+   * `Deriv-App-ID` header for PAT requests but not for OAuth requests.
+   */
+  authMethod?: "pat" | "oauth";
   [k: string]: string | undefined;
 }
 

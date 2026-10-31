@@ -21,7 +21,9 @@ Concise index of durable facts. Detail lives in the daily logs.
 - `db/migrations` forward-only SQL (0001 base, 0002 platform).
 
 ## Build & verify
-- `npm run verify` = typecheck all workspaces + `vitest run` (currently 114 tests / 11 files).
+- `npm run verify` = typecheck all workspaces + `vitest run` (currently 204 tests / 17 files).
+- The DB-integration file is skipped without `TEST_DATABASE_URL`; to run it, first
+  `DATABASE_URL=$TEST_DATABASE_URL npm run migrate` (the test DB must be at the same schema).
 - `NODE_ENV=production npm run build -w @phirst/web` — the sandbox's global
   `NODE_ENV=development` breaks `next build`. The web app **inlines `@phirst/core`**, so a core
   change needs a core+web rebuild and a `next start` restart or you get stale-bundle bugs.
@@ -58,3 +60,41 @@ Concise index of durable facts. Detail lives in the daily logs.
   only. A member loads `MemberShell`; the owner loads `TradingShell`.
 - When adding a member-visible screen, grep its `/api/...` calls against the owner-gated set,
   or the member sees empty panels. Commit `24b7b4f`.
+
+## Session 2026-10-30 (later) — audit found 4 real bugs, all fixed (see log)
+- Audit found no dead buttons and honest capability reporting, but four correctness bugs:
+- **Emergency stop was not sticky**: `start()` (and pause/stop/setMode) cleared it, so the
+  UI Start/Resume silently re-armed trading after an emergency stop. Only `resetEmergency()`
+  clears it now; controls refuse during `emergency`. AGENTS.md 46.
+- **`maxExposure` was inert**: open fixed-expiry contracts live in `orders`, not `positions`,
+  so exposure read 0. Now `currentExposure()` = max(sum orders, sum positions). Invariant 47.
+- **`consecutiveLossLimit` was never enforced**: now checked in `settleExpired` via
+  `lossStreakBreached()`. Invariant 48.
+- **Voice accent unvalidated**: now checked against `ALLOWED_ACCENTS`. Invariant 49.
+- Verify: 152 tests green, web prod build clean, `wein-smoke.sh` 58/58, fixes confirmed live.
+
+## Session 2026-10-31 — hardening + dead-button sweep (see 2026-10-31.md)
+- **The procedural avatar was invisible since the WEIN rebrand**: the draw loop scaled but
+  never recentred the 360-unit figure space, pushing the whole head into the canvas corner.
+  Only the halo rendered. Fixed with `translate(-R/2,-R/2)` before `drawFigure`.
+- **Floating avatar (z-50) swallowed the "More" tab tap** on every viewport; moved to
+  `bottom-[92px]` to clear the 67px tab bar.
+- **Gemini failover** now covers 429/5xx (was 404 only) and no longer leaks the raw provider
+  body into the UI error.
+- Playwright is the way to verify canvas UI here: reuse the `phirst_session` cookie, then
+  `canvas.toDataURL` + PIL grid sampling. See the recipe in the daily log.
+- Full paper lifecycle proven end to end (order → open → settled → engine P&L).
+- Suite now 172 tests / 15 files. AGENTS.md invariants 50–53 added.
+
+## Session 2026-10-31 (later) — Deriv OAuth 2.0 one-tap connect (see log)
+- "Connect Deriv" now uses Authorization Code + PKCE, not manual PAT entry.
+  `packages/brokers/src/deriv-oauth.ts`; state stored single-use in `oauth_states`; the
+  `code_verifier` is encrypted server-side and never reaches the browser.
+- Deriv issues **no refresh token**; expiry is tracked from `expires_in` and surfaced as
+  `expired`. OAuth tokens omit the `Deriv-App-ID` header (that is PAT-only).
+- Connecting never silently replaces the active account; it claims an empty slot, prefers
+  demo, and requires confirmation (`409`) to switch while exposure is open.
+- Fixed a `credentials_enc` leak: broker responses now go through `toPublicBroker`.
+- Suite 204 tests / 17 files. AGENTS.md invariants 54–60.
+- Awaiting `DERIV_OAUTH_CLIENT_ID` + `DERIV_OAUTH_REDIRECT_URI` in the Deriv dashboard; the
+  button reports "setup needed" until then rather than pretending to work.

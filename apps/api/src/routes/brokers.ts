@@ -10,6 +10,11 @@ import {
   listAccounts,
   setActiveAccount,
   getActiveBroker,
+  setActiveTradingAccount,
+  ensureActiveAfterConnect,
+  getActiveSelection,
+  getActiveConnectionHealth,
+  toPublicBroker,
   audit,
   type Config,
   type Logger,
@@ -61,6 +66,11 @@ export function registerBrokerRoutes(
           lastVerifiedAt: b.last_verified_at,
           lastError: b.last_error,
           capabilities: redactCapabilities(b.capabilities as Record<string, unknown>),
+          // OAuth connection state. No token is ever included; only its non-secret metadata.
+          authMethod: b.auth_method ?? "pat",
+          oauthExpiresAt: b.oauth_expires_at ?? null,
+          oauthExpired: Boolean(b.oauth_expires_at && new Date(b.oauth_expires_at).getTime() <= Date.now()),
+          oauthScope: b.oauth_scope ?? null,
           createdAt: b.created_at,
         })),
       });
@@ -120,6 +130,8 @@ export function registerBrokerRoutes(
       }
       for (const acct of check.accounts) await upsertAccount(row.id, acct);
       await updateBrokerStatus(row.id, check.ok ? "connected" : "error", check.ok ? null : check.message, adapter.capabilities() as unknown as Record<string, unknown>);
+      // Smart selection: only claims the active slot when nothing else holds it.
+      const selection = await ensureActiveAfterConnect(row.id);
       await onBrokersChanged();
       await adapter.close?.();
 
@@ -130,6 +142,7 @@ export function registerBrokerRoutes(
         message: check.message,
         accounts: check.accounts,
         capabilities: adapter.capabilities(),
+        selection,
       });
     })();
   });
@@ -189,20 +202,37 @@ export function registerBrokerRoutes(
     })();
   });
 
-  router.owner.post("/api/accounts/:id/activate", ({ res, params, ip }: RequestContext) => {
+  router.owner.post("/api/accounts/:id/activate", ({ res, params, body, ip }: RequestContext) => {
     void (async () => {
-      const rows = await listAccounts();
-      const acct = rows.find((a) => a.id === params.id);
-      if (!acct) {
-        error(res, 404, "Account not found.");
+      const { confirm } = (body ?? {}) as { confirm?: boolean };
+      const result = await setActiveTradingAccount(params.id!, { confirm: confirm === true });
+      await audit({
+        actor: "user",
+        action: "account.activate",
+        target: params.id!,
+        detail: { ok: result.ok, requiresConfirmation: result.requiresConfirmation },
+        ip,
+      });
+      if (!result.ok) {
+        error(res, result.requiresConfirmation ? 409 : 404, result.message, {
+          requiresConfirmation: result.requiresConfirmation,
+        });
         return;
       }
-      // Selecting an account also makes its broker active.
-      await setActiveBroker(String(acct.broker_id));
-      await setActiveAccount(String(acct.id));
-      await audit({ actor: "user", action: "account.activate", target: String(acct.id), detail: { accountId: acct.account_id }, ip });
       await onBrokersChanged();
-      json(res, 200, { ok: true });
+      json(res, 200, { ok: true, selection: result.selection });
+    })();
+  });
+
+  // The active selection and its health, in one call. Drives the connection banner and the
+  // "active account" indicator without the UI having to infer either from two responses.
+  router.owner.get("/api/brokers/active", ({ res }: RequestContext) => {
+    void (async () => {
+      const [selection, health] = await Promise.all([getActiveSelection(), getActiveConnectionHealth()]);
+      json(res, 200, {
+        selection,
+        health: { ...health, broker: health.broker ? toPublicBroker(health.broker) : null },
+      });
     })();
   });
 

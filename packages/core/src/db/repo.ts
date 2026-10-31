@@ -89,6 +89,14 @@ export interface BrokerRow extends Row {
   last_error: string | null;
   capabilities: Record<string, unknown>;
   created_at: string;
+  /** 'pat' (manual token) or 'oauth' (Deriv authorization). */
+  auth_method?: string;
+  /** When an OAuth access token stops working. NULL for PAT connections. */
+  oauth_expires_at?: string | null;
+  /** Scopes granted at the provider, recorded from the token response. */
+  oauth_scope?: string | null;
+  /** The provider account id this connection is currently pointed at. */
+  active_account_id?: string | null;
 }
 
 export async function listBrokers(): Promise<BrokerRow[]> {
@@ -141,12 +149,13 @@ export async function deleteBroker(id: string): Promise<void> {
 
 export async function upsertAccount(brokerId: string, acct: BrokerAccount): Promise<void> {
   await exec(
-    `INSERT INTO accounts (id, broker_id, account_id, account_type, currency, balance, loginid, label, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+    `INSERT INTO accounts (id, broker_id, account_id, account_type, currency, balance, loginid, label, status, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
      ON CONFLICT (broker_id, account_id) DO UPDATE
        SET account_type=EXCLUDED.account_type, currency=EXCLUDED.currency,
-           balance=EXCLUDED.balance, loginid=EXCLUDED.loginid, updated_at=now()`,
-    [newId(), brokerId, acct.id, acct.type, acct.currency, acct.balance, acct.loginid ?? null, acct.label ?? null],
+           balance=EXCLUDED.balance, loginid=EXCLUDED.loginid, label=EXCLUDED.label,
+           status=EXCLUDED.status, updated_at=now()`,
+    [newId(), brokerId, acct.id, acct.type, acct.currency, acct.balance, acct.loginid ?? null, acct.label ?? null, acct.status ?? null],
   );
 }
 
@@ -161,6 +170,99 @@ export async function getActiveAccount(): Promise<Row | null> {
 
 export async function setActiveAccount(accountRowId: string): Promise<void> {
   await exec("UPDATE accounts SET is_active = (id = $1)", [accountRowId]);
+}
+
+// --- Deriv OAuth 2.0 ----------------------------------------------------------
+
+export interface OAuthStateRow extends Row {
+  state: string;
+  provider: string;
+  user_id: string;
+  code_verifier_enc: string;
+  redirect_uri: string;
+  intent: string;
+  broker_id: string | null;
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
+}
+
+export async function insertOAuthState(input: {
+  state: string;
+  provider: string;
+  userId: string;
+  codeVerifierEnc: string;
+  redirectUri: string;
+  intent: "connect" | "reconnect";
+  brokerId: string | null;
+  expiresAt: Date;
+}): Promise<void> {
+  await exec(
+    `INSERT INTO oauth_states (state, provider, user_id, code_verifier_enc, redirect_uri, intent, broker_id, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      input.state,
+      input.provider,
+      input.userId,
+      input.codeVerifierEnc,
+      input.redirectUri,
+      input.intent,
+      input.brokerId,
+      input.expiresAt,
+    ],
+  );
+}
+
+/**
+ * Read a state row and mark it consumed in one statement, so two concurrent callbacks
+ * cannot both exchange the same authorization code. Returns null when the state is
+ * unknown, already consumed or expired — all three are treated identically by the caller.
+ */
+export async function consumeOAuthState(state: string): Promise<OAuthStateRow | null> {
+  const row = await queryOne<OAuthStateRow>(
+    `UPDATE oauth_states
+        SET consumed_at = now()
+      WHERE state = $1 AND consumed_at IS NULL AND expires_at > now()
+      RETURNING *`,
+    [state],
+  );
+  return row;
+}
+
+export async function purgeExpiredOAuthStates(): Promise<void> {
+  await exec("DELETE FROM oauth_states WHERE expires_at < now() - interval '1 hour'");
+}
+
+/**
+ * Record OAuth token metadata on a broker after a successful exchange. The access token
+ * itself is written to `credentials_enc` by the caller; only the non-secret metadata is
+ * set here.
+ */
+export async function setBrokerOAuth(input: {
+  brokerId: string;
+  oauthExpiresAt: Date;
+  scope: string | null;
+}): Promise<void> {
+  await exec(
+    `UPDATE brokers SET auth_method='oauth', oauth_expires_at=$2, oauth_scope=$3 WHERE id=$1`,
+    [input.brokerId, input.oauthExpiresAt, input.scope],
+  );
+}
+
+export async function setBrokerActiveAccount(brokerId: string, accountId: string | null): Promise<void> {
+  await exec("UPDATE brokers SET active_account_id=$2 WHERE id=$1", [brokerId, accountId]);
+}
+
+/**
+ * Replace a broker's stored credentials in place. Used by an OAuth reauthorization so the
+ * broker keeps its id, label and selected account while gaining a fresh token.
+ */
+export async function setBrokerCredentials(brokerId: string, credentialsEnc: string, fingerprint: string): Promise<void> {
+  await exec("UPDATE brokers SET credentials_enc=$2, credential_fingerprint=$3 WHERE id=$1", [
+    brokerId,
+    credentialsEnc,
+    fingerprint,
+  ]);
 }
 
 // --- Orders -------------------------------------------------------------------
@@ -822,4 +924,78 @@ export async function consumeTelegramLinkCode(code: string): Promise<string | nu
   await exec("DELETE FROM telegram_link_codes WHERE code=$1", [code]);
   if (new Date(row.expires_at).getTime() < Date.now()) return null;
   return row.user_id;
+}
+
+// --- Email delivery log (Resend) ----------------------------------------------
+
+export interface EmailLogRecord {
+  id: string;
+  provider: string;
+  toAddress: string;
+  subject: string;
+  category: string;
+  ok: boolean;
+  providerId: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+function mapEmailLog(r: Row): EmailLogRecord {
+  return {
+    id: String(r.id),
+    provider: String(r.provider),
+    toAddress: String(r.to_address),
+    subject: String(r.subject),
+    category: String(r.category),
+    ok: Boolean(r.ok),
+    providerId: (r.provider_id as string | null) ?? null,
+    error: (r.error as string | null) ?? null,
+    createdAt: String(r.created_at),
+  };
+}
+
+/** Record the outcome of an email send. Called for both success and failure. */
+export async function logEmail(input: {
+  provider: string;
+  toAddress: string;
+  subject: string;
+  category: string;
+  ok: boolean;
+  providerId?: string | null;
+  error?: string | null;
+}): Promise<string> {
+  const id = newId();
+  await exec(
+    `INSERT INTO email_log (id, provider, to_address, subject, category, ok, provider_id, error)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [id, input.provider, input.toAddress, input.subject, input.category, input.ok, input.providerId ?? null, input.error ?? null],
+  );
+  return id;
+}
+
+export async function listEmailLog(limit = 50): Promise<EmailLogRecord[]> {
+  const rows = await query<Row>("SELECT * FROM email_log ORDER BY created_at DESC LIMIT $1", [limit]);
+  return rows.map(mapEmailLog);
+}
+
+// --- Supabase identity links --------------------------------------------------
+
+export async function linkSupabaseIdentity(input: { userId: string; supabaseUserId: string; email: string | null }): Promise<void> {
+  await exec(
+    `INSERT INTO supabase_identity (user_id, supabase_user_id, email) VALUES ($1,$2,$3)
+     ON CONFLICT (user_id) DO UPDATE SET supabase_user_id = EXCLUDED.supabase_user_id, email = EXCLUDED.email, linked_at = now()`,
+    [input.userId, input.supabaseUserId, input.email],
+  );
+}
+
+export async function getSupabaseIdentity(userId: string): Promise<Row | null> {
+  return queryOne("SELECT * FROM supabase_identity WHERE user_id = $1", [userId]);
+}
+
+export async function findUserBySupabaseId(supabaseUserId: string): Promise<Row | null> {
+  return queryOne("SELECT * FROM supabase_identity WHERE supabase_user_id = $1", [supabaseUserId]);
+}
+
+export async function unlinkSupabaseIdentity(userId: string): Promise<void> {
+  await exec("DELETE FROM supabase_identity WHERE user_id = $1", [userId]);
 }

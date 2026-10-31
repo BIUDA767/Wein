@@ -21,6 +21,7 @@ interface DerivAccount {
   balance?: number;
   loginid?: string;
   is_virtual?: boolean | number;
+  status?: string;
 }
 
 function classifyAccount(a: DerivAccount): "demo" | "real" {
@@ -90,6 +91,26 @@ export class DerivAdapter implements BrokerAdapter {
     return id;
   }
 
+  /**
+   * Deriv requires a `Deriv-App-ID` header for Personal Access Token requests only. An
+   * OAuth access token already identifies the application, and sending the header is
+   * unnecessary. Omitting it also means an OAuth connection does not depend on a
+   * registered app id being configured.
+   */
+  private authHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.creds.token}`,
+      "Content-Type": "application/json",
+    };
+    if (this.creds.authMethod !== "oauth") headers["Deriv-App-ID"] = this.appId;
+    return headers;
+  }
+
+  /** A 401 from an OAuth token means the token expired; the owner must reconnect. */
+  private static isExpiredOAuth(status: number, authMethod: string | undefined): boolean {
+    return status === 401 && authMethod === "oauth";
+  }
+
   /** Deriv returns HTTP 200 with an `error` object for many failures; surface it loudly. */
   private ensureNoError(res: Record<string, unknown>, context: string): void {
     const err = res.error as { code?: string; message?: string } | undefined;
@@ -106,9 +127,7 @@ export class DerivAdapter implements BrokerAdapter {
     const res = await fetch(`${REST_BASE}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
-        "Deriv-App-ID": this.appId,
-        "Content-Type": "application/json",
+        ...this.authHeaders(),
         ...(init.headers ?? {}),
       },
     });
@@ -124,10 +143,15 @@ export class DerivAdapter implements BrokerAdapter {
       const message = errs?.[0]?.message ?? (typeof body.raw === "string" ? body.raw : `HTTP ${res.status}`);
       const code = errs?.[0]?.code ?? "";
       const isAuth = res.status === 401 || res.status === 403 || /Unauthorized|Invalid application/i.test(message);
+      // An OAuth token that returns 401 has expired, which is a reauthorise condition, not
+      // a bad-credential one. Retrying is pointless; the owner must reconnect.
+      const expired = DerivAdapter.isExpiredOAuth(res.status, this.creds.authMethod);
       throw new BrokerError(
-        `Deriv ${path} failed (${res.status}${code ? " " + code : ""}): ${message}`,
+        expired
+          ? "Deriv authorization has expired. Reconnect the account to continue."
+          : `Deriv ${path} failed (${res.status}${code ? " " + code : ""}): ${message}`,
         isAuth ? "auth" : res.status === 429 ? "rate_limit" : "unknown",
-        res.status >= 500 || res.status === 429,
+        expired ? false : res.status >= 500 || res.status === 429,
       );
     }
     return body;
@@ -139,7 +163,10 @@ export class DerivAdapter implements BrokerAdapter {
         ok: false,
         authenticated: false,
         accounts: [],
-        message: "No API token configured. Add a Deriv Personal Access Token and a registered Deriv-App-ID.",
+        message:
+          this.creds.authMethod === "oauth"
+            ? "This Deriv connection has no access token. Reconnect the account."
+            : "No API token configured. Add a Deriv Personal Access Token and a registered Deriv-App-ID.",
       };
     }
     try {
@@ -152,9 +179,11 @@ export class DerivAdapter implements BrokerAdapter {
         authenticated: false,
         accounts: [],
         message:
-          e.code === "auth"
-            ? `${e.message} — trading needs a Deriv-App-ID registered on the Deriv dashboard for this token.`
-            : e.message,
+          this.creds.authMethod === "oauth"
+            ? e.message
+            : e.code === "auth"
+              ? `${e.message} — trading needs a Deriv-App-ID registered on the Deriv dashboard for this token.`
+              : e.message,
       };
     }
   }
@@ -169,6 +198,7 @@ export class DerivAdapter implements BrokerAdapter {
       currency: a.currency ?? "USD",
       balance: typeof a.balance === "number" ? a.balance : null,
       loginid: a.loginid,
+      status: a.status ?? null,
       label: `${classifyAccount(a) === "demo" ? "Demo" : "Real"} ${a.currency ?? ""}`.trim(),
     }));
     this.accounts = accounts;

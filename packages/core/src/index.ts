@@ -5,6 +5,7 @@ export * from "./indicators.ts";
 export * from "./crypto/vault.ts";
 export * from "./db/pool.ts";
 export * from "./db/repo.ts";
+export * from "./db/active-account.ts";
 export * from "./risk/engine.ts";
 export * from "./risk/validator.ts";
 export * from "./strategies/registry.ts";

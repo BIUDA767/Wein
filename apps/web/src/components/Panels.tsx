@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiFailure, type BrokerRecord, type MemoryRecord, type PerformanceReport, type ProviderSpec, type TelegramStatus, type VoiceSettings } from "@/lib/api";
+import { api, ApiFailure, type ActiveSelection, type BrokerRecord, type ConnectionHealth, type DerivOAuthConfig, type MemoryRecord, type PerformanceReport, type ProviderSpec, type TelegramStatus, type VoiceSettings } from "@/lib/api";
 import type { AppState } from "@/lib/store";
 import { ConfirmDialog, EmptyState, Pill, Row, SectionTitle, Spinner, Switch } from "./ui";
+import { Emblem } from "./Emblem";
 import { money, signed, titleCase } from "@/lib/format";
 
-type PanelKey = "authority" | "appearance" | "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
+export type PanelKey = "authority" | "appearance" | "brokers" | "risk" | "strategies" | "phirst" | "voice" | "notifications" | "telegram" | "security" | "system";
 
 const PANELS: Array<{ key: PanelKey; label: string; hint: string }> = [
   { key: "authority", label: "Trading authority", hint: "Manual, approval or autonomous" },
@@ -432,8 +433,11 @@ function BrokerPanel({ app }: { app: AppState }) {
   const [appId, setAppId] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ verified: boolean; message: string; authenticated: boolean } | null>(null);
-  const [accounts, setAccounts] = useState<Record<string, Array<{ id: string; account_id: string; account_type: string; currency: string; balance: string | number | null; loginid: string | null; is_active: boolean }>>>({});
+  const [accounts, setAccounts] = useState<Record<string, Array<{ id: string; account_id: string; account_type: string; currency: string; balance: string | number | null; loginid: string | null; status?: string | null; is_active: boolean }>>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [oauthConfig, setOauthConfig] = useState<DerivOAuthConfig | null>(null);
+  const [confirmSwitch, setConfirmSwitch] = useState<{ id: string; accountId: string; message: string } | null>(null);
+  const [health, setHealth] = useState<{ selection: ActiveSelection; health: ConnectionHealth } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -444,13 +448,32 @@ function BrokerPanel({ app }: { app: AppState }) {
         app.notify((err as Error).message, "bad");
       }
     })();
+    void (async () => {
+      try {
+        setOauthConfig(await api.get<DerivOAuthConfig>("/api/deriv/oauth/config"));
+      } catch {
+        /* config endpoint is owner-only; a failure here is not fatal */
+      }
+    })();
   }, [app]);
+
+  const loadHealth = async () => {
+    try {
+      setHealth(await api.get<{ selection: ActiveSelection; health: ConnectionHealth }>("/api/brokers/active"));
+    } catch {
+      /* not fatal */
+    }
+  };
+
+  useEffect(() => {
+    void loadHealth();
+  }, [app.brokers]);
 
   const spec = providers.find((p) => p.id === provider);
 
   const loadAccounts = async (brokerId: string) => {
     try {
-      const res = await api.get<{ accounts: Array<{ id: string; account_id: string; account_type: string; currency: string; balance: string | number | null; loginid: string | null; is_active: boolean }> }>(`/api/brokers/${brokerId}/accounts`);
+      const res = await api.get<{ accounts: Array<{ id: string; account_id: string; account_type: string; currency: string; balance: string | number | null; loginid: string | null; status?: string | null; is_active: boolean }> }>(`/api/brokers/${brokerId}/accounts`);
       setAccounts((prev) => ({ ...prev, [brokerId]: res.accounts }));
     } catch {
       /* not fatal */
@@ -460,6 +483,21 @@ function BrokerPanel({ app }: { app: AppState }) {
   useEffect(() => {
     for (const b of app.brokers) void loadAccounts(b.id);
   }, [app.brokers]);
+
+  /** Begin the Deriv OAuth flow: fetch the authorization URL, then hand the browser to Deriv. */
+  const connectDeriv = async (mode: "connect" | "reconnect", brokerId?: string) => {
+    setBusy(true);
+    try {
+      const path = mode === "reconnect" ? "/api/deriv/oauth/reconnect" : "/api/deriv/oauth/start";
+      const res = await api.post<{ url: string }>(path, mode === "reconnect" ? { brokerId } : {});
+      // Full-page navigation so Deriv's own consent screens render and mobile Safari keeps
+      // the address bar. No secret is in this URL beyond the one-time PKCE challenge.
+      window.location.href = res.url;
+    } catch (err) {
+      app.notify(err instanceof ApiFailure ? err.message : (err as Error).message, "bad");
+      setBusy(false);
+    }
+  };
 
   const add = async () => {
     setBusy(true);
@@ -502,8 +540,79 @@ function BrokerPanel({ app }: { app: AppState }) {
     }
   };
 
+  const activateAccount = async (accountRowId: string, accountId: string, confirm = false) => {
+    try {
+      await api.post(`/api/accounts/${accountRowId}/activate`, confirm ? { confirm: true } : {});
+      app.notify(`Account ${accountId} is now active.`, "good");
+      setConfirmSwitch(null);
+      await app.refresh();
+      await loadHealth();
+    } catch (err) {
+      if (err instanceof ApiFailure && err.status === 409 && (err.extra as { requiresConfirmation?: boolean })?.requiresConfirmation) {
+        setConfirmSwitch({ id: accountRowId, accountId, message: err.message });
+        return;
+      }
+      app.notify((err as Error).message, "bad");
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* One-tap Deriv connection. Shown first because it is the primary path. */}
+      <SectionTitle>Connect a broker</SectionTitle>
+      <div className="glass p-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Emblem size={22} />
+          <span className="text-[14px] font-semibold text-white">Deriv</span>
+          {oauthConfig?.configured ? (
+            <Pill tone="good">one-tap ready</Pill>
+          ) : (
+            <Pill tone="warn">setup needed</Pill>
+          )}
+        </div>
+        {oauthConfig?.configured ? (
+          <>
+            <p className="mb-3 text-[11.5px] leading-relaxed text-white/45">
+              Authorise on Deriv&rsquo;s own site. You log in with Deriv directly; Wein never sees your
+              password and never asks you to copy a token. You return here automatically.
+            </p>
+            <button className="btn-primary w-full" onClick={() => void connectDeriv("connect")} disabled={busy}>
+              {busy ? <Spinner /> : "Connect Deriv"}
+            </button>
+            <p className="mt-2 text-[10.5px] leading-relaxed text-white/30">
+              Requests only: {oauthConfig.scopes.join(", ") || "trade"}. Redirect: {oauthConfig.redirectUri}
+            </p>
+          </>
+        ) : (
+          <div className="rounded-2xl border border-amber-400/30 bg-amber-400/8 px-3 py-2.5 text-[11.5px] leading-relaxed text-amber-200/90">
+            One-tap connection needs a Deriv OAuth2 app. Set{" "}
+            {oauthConfig?.requiredEnv.join(" and ") ?? "DERIV_OAUTH_CLIENT_ID and DERIV_OAUTH_REDIRECT_URI"}{" "}
+            on the server, register the redirect URI at Deriv, then reload. The manual
+            Personal Access Token option below still works.
+          </div>
+        )}
+      </div>
+
+      {/* Active account summary: exactly which broker/account trades will route to. */}
+      {health?.selection?.brokerId && (
+        <div className="glass p-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[12.5px] font-medium text-white/80">Active trading account</span>
+            <Pill tone={health.health.state === "connected" ? "good" : health.health.state === "expired" ? "warn" : "bad"}>
+              {health.health.state}
+            </Pill>
+          </div>
+          <div className="text-[11.5px] text-white/45">
+            {health.selection.brokerLabel ?? health.selection.brokerId} · {health.selection.providerAccountId ?? "no account selected"}
+          </div>
+          {health.health.state === "expired" && (
+            <div className="mt-2 rounded-xl border border-amber-400/30 bg-amber-400/8 px-3 py-2 text-[11.5px] text-amber-200/90">
+              {health.health.detail}
+            </div>
+          )}
+        </div>
+      )}
+
       <SectionTitle>Connected brokers</SectionTitle>
       {app.brokers.length === 0 && !adding && (
         <EmptyState title="No brokers connected" body="Connect a broker to receive live market data and place real orders. Paper mode uses live market data with simulated execution." />
@@ -518,17 +627,37 @@ function BrokerPanel({ app }: { app: AppState }) {
                 <div className="flex items-center gap-2">
                   <span className="text-[14px] font-semibold text-white">{b.label}</span>
                   {b.isActive && <Pill tone="good">active</Pill>}
+                  {b.authMethod === "oauth" && <Pill tone="gold">oauth</Pill>}
                 </div>
                 <div className="mt-0.5 text-[11.5px] text-white/40">{providerSpec?.name ?? b.provider} · {b.provider}</div>
               </div>
-              <Pill tone={b.status === "connected" ? "good" : b.status === "error" ? "bad" : "warn"}>{b.status}</Pill>
+              <Pill tone={b.oauthExpired ? "warn" : b.status === "connected" ? "good" : b.status === "error" ? "bad" : "warn"}>
+                {b.oauthExpired ? "expired" : b.status}
+              </Pill>
             </div>
+
+            {b.oauthExpired && (
+              <div className="mb-2 rounded-xl border border-amber-400/30 bg-amber-400/8 px-3 py-2 text-[11.5px] leading-relaxed text-amber-200/90">
+                The Deriv authorization expired{b.oauthExpiresAt ? ` on ${new Date(b.oauthExpiresAt).toLocaleString()}` : ""}.
+                Reconnect to authorise again; your account selection is preserved.
+              </div>
+            )}
 
             {b.lastError && (
               <div className="mb-2 rounded-xl border border-ruby-500/25 bg-ruby-500/8 px-3 py-2 text-[11.5px] leading-relaxed text-ruby-400">{b.lastError}</div>
             )}
 
             <Row label="Credential fingerprint" value={b.credentialFingerprint} hint="Secrets are encrypted and never displayed" />
+            {b.authMethod === "oauth" && (
+              <>
+                <Row label="Authorized scopes" value={b.oauthScope || "—"} hint="Granted by you at Deriv" />
+                <Row
+                  label="Authorization expires"
+                  value={b.oauthExpiresAt ? new Date(b.oauthExpiresAt).toLocaleString() : "—"}
+                  hint="Deriv issues no refresh token; reauthorise when this passes"
+                />
+              </>
+            )}
 
             {accounts[b.id]?.length ? (
               accounts[b.id]!.map((a) => (
@@ -537,29 +666,18 @@ function BrokerPanel({ app }: { app: AppState }) {
                     <div className="text-[12.5px] text-white/80">
                       {a.account_type === "real" ? "Real" : "Demo"} · {a.account_id}
                     </div>
-                    <div className="text-[11px] text-white/35">{a.loginid ?? "—"} · {a.currency}</div>
+                    <div className="text-[11px] text-white/35">
+                      {a.loginid ?? "—"} · {a.currency}
+                      {a.status ? ` · ${a.status}` : ""}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="mono-num text-[12.5px] text-white">{a.balance === null ? "—" : money(a.balance)}</span>
                     {a.is_active ? (
-                      <Pill tone="good">selected</Pill>
+                      <Pill tone="good">active</Pill>
                     ) : (
-                      <button
-                        className="chip"
-                        onClick={() =>
-                          void (async () => {
-                            try {
-                              await api.post(`/api/accounts/${a.id}/activate`);
-                              app.notify(`Account ${a.account_id} selected.`, "good");
-                              await app.refresh();
-                              await loadAccounts(b.id);
-                            } catch (err) {
-                              app.notify((err as Error).message, "bad");
-                            }
-                          })()
-                        }
-                      >
-                        select
+                      <button className="chip" onClick={() => void activateAccount(a.id, a.account_id)}>
+                        set active
                       </button>
                     )}
                   </div>
@@ -569,10 +687,19 @@ function BrokerPanel({ app }: { app: AppState }) {
               <div className="py-2 text-[11.5px] text-white/35">No accounts reported by this broker.</div>
             )}
 
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button className="btn-ghost flex-1 !py-2.5 text-[13px]" onClick={() => void verify(b.id)} disabled={busy}>
                 Verify
               </button>
+              {b.authMethod === "oauth" && (
+                <button
+                  className="btn-ghost flex-1 !py-2.5 text-[13px]"
+                  onClick={() => void connectDeriv("reconnect", b.id)}
+                  disabled={busy}
+                >
+                  {b.oauthExpired ? "Reconnect" : "Reauthorise"}
+                </button>
+              )}
               {!b.isActive && (
                 <button
                   className="btn-ghost flex-1 !py-2.5 text-[13px]"
@@ -582,6 +709,7 @@ function BrokerPanel({ app }: { app: AppState }) {
                         await api.post(`/api/brokers/${b.id}/activate`);
                         app.notify(`${b.label} is now the active broker.`, "good");
                         await app.refresh();
+                        await loadHealth();
                       } catch (err) {
                         app.notify((err as Error).message, "bad");
                       }
@@ -613,6 +741,7 @@ function BrokerPanel({ app }: { app: AppState }) {
               await api.del(`/api/brokers/${id}`);
               app.notify("Broker removed.", "good");
               await app.refresh();
+              await loadHealth();
             } catch (err) {
               app.notify((err as Error).message, "bad");
             }
@@ -620,8 +749,20 @@ function BrokerPanel({ app }: { app: AppState }) {
         }}
       />
 
+      <ConfirmDialog
+        open={confirmSwitch !== null}
+        title="Switch active account?"
+        body={confirmSwitch?.message ?? ""}
+        confirmLabel="Switch anyway"
+        onCancel={() => setConfirmSwitch(null)}
+        onConfirm={() => {
+          const pending = confirmSwitch!;
+          void activateAccount(pending.id, pending.accountId, true);
+        }}
+      />
+
       {!adding ? (
-        <button className="btn-primary w-full" onClick={() => setAdding(true)}>Add a broker</button>
+        <button className="btn-ghost w-full" onClick={() => setAdding(true)}>Add a broker manually</button>
       ) : (
         <div className="glass p-4">
           <SectionTitle>Add a broker</SectionTitle>

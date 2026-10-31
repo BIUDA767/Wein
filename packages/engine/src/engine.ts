@@ -1,6 +1,8 @@
 import {
   Vault,
   evaluateRisk,
+  currentExposure,
+  lossStreakBreached,
   validateTrade,
   DEFAULT_VALIDATION_LIMITS,
   drawdownFromEquity,
@@ -50,7 +52,8 @@ import {
 } from "@phirst/core";
 import { GeminiClient, runAgentPanel, evaluateProactiveAlerts, type AgentContext, type TradeHistoryStats, type PhirstFacts } from "@phirst/ai";
 import { BrokerManager, type ActiveBroker } from "./broker-manager.ts";
-import { MarketDataService } from "./market-data.ts";
+import { MarketDataService, resolveMarketDataProvider, BrokerMarketDataProvider } from "@phirst/marketdata";
+import type { MarketDataProvider } from "@phirst/marketdata";
 import { executeIntent, settleOpenOrders, reconcile, type ExecutionDeps } from "./execution.ts";
 
 export interface EngineOptions {
@@ -67,6 +70,13 @@ export interface EngineOptions {
   autoTrade: boolean;
   /** How much authority PHIRST2 has. Enforced by the engine, not the UI. */
   tradingMode?: TradingMode;
+  /**
+   * Optional market-data provider, separate from the execution broker. When present it
+   * supplies quotes and candles; when absent the broker's own feed is used.
+   */
+  marketData?: MarketDataProvider | null;
+  /** Which provider the owner prefers, when a market-data provider is configured. */
+  marketDataProviderId?: "deriv" | "twelve_data";
 }
 
 export interface EngineSnapshot {
@@ -181,7 +191,17 @@ export class TradingEngine {
         this.market = null;
         return;
       }
-      this.market = new MarketDataService(this.active.adapter, this.opts.log);
+      // Market data is served by the configured provider when one is set, and by the
+      // broker's own feed otherwise. Order execution always stays with the broker.
+      const brokerFeed = new BrokerMarketDataProvider(this.active.adapter, this.active.broker.label);
+      const provider = resolveMarketDataProvider({
+        preferred: this.opts.marketDataProviderId ?? "deriv",
+        twelveData: this.opts.marketData ?? null,
+        brokerFeed,
+        log: this.opts.log,
+      });
+      if (!this.market) this.market = new MarketDataService(provider, this.opts.log);
+      else this.market.setProvider(provider);
       const check = await this.active.adapter.verifyConnection();
       this.brokerConnected = check.ok;
       this.brokerError = check.ok ? null : check.message;
@@ -196,6 +216,12 @@ export class TradingEngine {
   }
 
   async start(): Promise<{ ok: boolean; message: string }> {
+    // The emergency stop is persistent and must be cleared deliberately with
+    // resetEmergency(). Starting must never double as an implicit reset, or the UI's
+    // Start/Resume button would silently re-arm trading after an emergency stop.
+    if (this.state === "emergency") {
+      return { ok: false, message: "Emergency stop is engaged. Reset it before starting." };
+    }
     await this.refreshBroker();
     if (!this.active) return { ok: false, message: "Configure a broker before starting the engine." };
     if (!this.market) return { ok: false, message: "Market data is unavailable." };
@@ -221,13 +247,19 @@ export class TradingEngine {
     return { ok: true, message: `Engine running in ${this.mode} mode on ${this.opts.symbol}.` };
   }
 
-  async pause(reason = "Paused by user."): Promise<void> {
+  async pause(reason = "Paused by user."): Promise<{ ok: boolean; message: string }> {
+    // Pause and stop must not clear a live emergency stop. Only resetEmergency() does,
+    // so an accidental Pause/Stop click cannot quietly re-arm trading.
+    if (this.state === "emergency") {
+      return { ok: false, message: "Emergency stop is engaged. Reset it before pausing." };
+    }
     this.state = "paused";
     this.reason = reason;
     await setEngineState(this.state, this.mode, reason);
     await audit({ actor: "user", action: "engine.pause", detail: { reason } });
     this.stopTimer();
     this.opts.log.info("engine paused", { reason });
+    return { ok: true, message: "Engine paused." };
   }
 
   async resume(): Promise<{ ok: boolean; message: string }> {
@@ -235,13 +267,17 @@ export class TradingEngine {
     return this.start();
   }
 
-  async stop(reason = "Stopped by user."): Promise<void> {
+  async stop(reason = "Stopped by user."): Promise<{ ok: boolean; message: string }> {
+    if (this.state === "emergency") {
+      return { ok: false, message: "Emergency stop is engaged. Reset it before stopping." };
+    }
     this.state = "stopped";
     this.reason = reason;
     await setEngineState(this.state, this.mode, reason);
     await audit({ actor: "user", action: "engine.stop", detail: { reason } });
     this.stopTimer();
     this.opts.log.info("engine stopped", { reason });
+    return { ok: true, message: "Engine stopped." };
   }
 
   /** Persistent, backend-enforced emergency stop. Checked before every order. */
@@ -269,6 +305,11 @@ export class TradingEngine {
    * The engine is stopped as part of the switch.
    */
   async setMode(mode: TradeMode, confirmation?: string): Promise<{ ok: boolean; message: string }> {
+    // A mode switch ends in `stopped`, so allowing it during an emergency would clear the
+    // stop through a side door. The emergency stop stays sticky until it is reset.
+    if (this.state === "emergency") {
+      return { ok: false, message: "Emergency stop is engaged. Reset it before changing the trading mode." };
+    }
     if (mode === "live") {
       if (confirmation !== "ENABLE LIVE TRADING") {
         return { ok: false, message: 'Live trading requires the exact confirmation phrase "ENABLE LIVE TRADING".' };
@@ -349,9 +390,33 @@ export class TradingEngine {
       if (settled.length > 0) {
         this.opts.log.info("contracts settled", { count: settled.length });
         await this.refreshStats();
+        await this.enforceLossStreak();
       }
     } catch (err) {
       this.opts.log.debug("settlement sweep failed", { error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Pause when the losing streak reaches the configured limit. The risk engine already
+   * de-risks each trade after a loss; this is the separate stop the owner configures, and
+   * without it the setting would be inert. It fires only while running and never resumes
+   * on its own — the owner resumes deliberately, as with every other halt.
+   */
+  private async enforceLossStreak(): Promise<void> {
+    if (this.state !== "running" || this.lossStreak <= 0) return;
+    const risk = await getRiskConfig();
+    if (lossStreakBreached(this.lossStreak, risk.consecutiveLossLimit)) {
+      await this.pause(
+        `Paused: ${this.lossStreak} consecutive losses reached the configured limit of ${risk.consecutiveLossLimit}.`,
+      );
+      await insertNotification({
+        severity: "warning",
+        title: "Paused after a losing streak",
+        body: `${this.lossStreak} consecutive losing trades reached the limit of ${risk.consecutiveLossLimit}. The engine is paused; review the strategy before resuming.`,
+        category: "risk",
+        meta: { lossStreak: this.lossStreak, limit: risk.consecutiveLossLimit },
+      });
     }
   }
 
@@ -727,8 +792,15 @@ export class TradingEngine {
 
   private async riskContext(): Promise<RiskContext> {
     const risk = await getRiskConfig();
-    const positions = await listPositions(this.mode);
-    const exposure = positions.reduce((a, p) => a + Math.abs(Number(p.size ?? 0)), 0);
+    // Exposure is the money actually at risk right now. For fixed-expiry contracts that
+    // is the open orders, not the position table: the paper simulator and Deriv both
+    // report open contracts as portfolio entries, so a position-based figure would read
+    // zero while several contracts are live and the maxExposure ceiling would never bind.
+    const [positions, openOrders] = await Promise.all([listPositions(this.mode), listOpenOrders(this.mode)]);
+    const exposure = currentExposure(
+      openOrders.map((o) => Number(o.amount ?? 0)),
+      positions.map((p) => Number(p.size ?? 0)),
+    );
     const lossToday = this.dailyPnl < 0 ? -this.dailyPnl : 0;
     const halted = this.state === "emergency" || lossToday >= risk.dailyLossLimit || this.drawdown >= risk.maxDrawdown;
     return {

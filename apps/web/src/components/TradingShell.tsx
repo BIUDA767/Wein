@@ -10,11 +10,12 @@ import { api, ApiFailure, type Candle, type ChatReply, type EngineStatus, type O
 import { useAppState } from "@/lib/store";
 import { useVoice } from "@/lib/voice";
 import { sound } from "@/lib/sound";
-import { Panels } from "./Panels";
+import { Panels, type PanelKey } from "./Panels";
 import { OrderSheet, AssetSheet, PhirstConsole } from "./Sheets";
 import { AssetsScreen, DiscoverScreen, HistoryScreen, NotificationsScreen, PositionsScreen, ProfileScreen, SupportScreen } from "./Screens";
 import { CommunityScreen, MembersScreen, MessagingScreen } from "./Community";
 import { AdminScreen } from "./Admin";
+import { IntegrationsScreen } from "./Integrations";
 import { useSession } from "@/lib/session";
 import { money, signed, timeAgo, statusTone } from "@/lib/format";
 
@@ -39,6 +40,7 @@ export type MoreKey =
   | "members"
   | "profile"
   | "support"
+  | "integrations"
   | "admin";
 
 const MORE_LABELS: Record<Exclude<MoreKey, "hub">, string> = {
@@ -48,6 +50,7 @@ const MORE_LABELS: Record<Exclude<MoreKey, "hub">, string> = {
   messages: "Messages",
   members: "Members",
   profile: "Profile and security",
+  integrations: "Integrations",
   support: "Help and diagnostics",
   admin: "Owner dashboard",
 };
@@ -71,7 +74,7 @@ export function TradingShell() {
   const [positions, setPositions] = useState<PositionRecord[]>([]);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [panelsOpen, setPanelsOpen] = useState(false);
-  const [panelsInitial, setPanelsInitial] = useState<"authority" | undefined>(undefined);
+  const [panelsInitial, setPanelsInitial] = useState<PanelKey | undefined>(undefined);
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<"buy" | "sell" | null>(null);
@@ -151,6 +154,42 @@ export function TradingShell() {
       void app.loadInstruments();
     }
   }, [connected, app]);
+
+  // The Deriv OAuth callback redirects back here with a short status word. Report it once,
+  // open the broker panel so the result is visible, then strip the params so a reload does
+  // not replay the message.
+  const handledCallback = useRef(false);
+  useEffect(() => {
+    if (handledCallback.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const deriv = params.get("deriv");
+    if (!deriv) return;
+    handledCallback.current = true;
+    const reason = params.get("reason");
+    if (deriv === "connected") {
+      notify("Deriv connected. Your account is ready.", "good");
+    } else if (deriv === "unverified") {
+      notify("Deriv authorized, but the connection could not be verified. Check the broker panel.", "warn");
+    } else if (deriv === "error") {
+      const messages: Record<string, string> = {
+        cancelled: "Connection cancelled at Deriv. Nothing was changed.",
+        invalid_state: "The connection request expired or was already used. Start again.",
+        invalid_callback: "Deriv returned an incomplete response. Start the connection again.",
+        server_error: "Wein could not complete the connection. Try again.",
+      };
+      notify(messages[reason ?? ""] ?? `Deriv connection failed (${reason ?? "unknown"}).`, "bad");
+    }
+    setNav("more");
+    setMore("integrations");
+    setPanelsInitial("brokers");
+    setPanelsOpen(true);
+    void refresh();
+    params.delete("deriv");
+    params.delete("reason");
+    params.delete("broker");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, [notify, refresh]);
 
   useEffect(() => {
     if (!connected) return;
@@ -612,6 +651,7 @@ export function TradingShell() {
             <div className="-mx-1">
               {(Object.keys(MORE_LABELS) as Array<Exclude<MoreKey, "hub">>)
                 .filter((k) => k !== "admin" || isOwner)
+                .filter((k) => k !== "integrations" || isOwner)
                 .filter((k) => k !== "members" || isModerator)
                 .map((k) => (
                   <button
@@ -645,6 +685,7 @@ export function TradingShell() {
             {more === "members" && <MembersScreen notify={notify} />}
             {more === "profile" && <ProfileScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
             {more === "support" && <SupportScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+            {more === "integrations" && isOwner && <IntegrationsScreen notify={notify} />}
             {more === "admin" && isOwner && <AdminScreen notify={notify} />}
           </>
         )}
@@ -683,7 +724,9 @@ export function TradingShell() {
         </div>
       </nav>
 
-      <div className="fixed bottom-5 right-4 z-50 flex flex-col items-end gap-2.5">
+      {/* Sits above the tab bar so it never swallows a tab tap, and clear of the right edge
+          so the rightmost tab stays reachable on a narrow phone. */}
+      <div className="fixed bottom-[92px] right-4 z-50 flex flex-col items-end gap-2.5">
         {v.transcript && (
           <div className="max-w-[230px] rounded-2xl border border-white/12 px-3.5 py-2.5 text-[11.5px] leading-snug text-white/85 shadow-glass backdrop-blur-xl"
             style={{ background: "linear-gradient(180deg, rgba(28,28,32,0.96) 0%, rgba(18,18,21,0.97) 100%)" }}

@@ -206,4 +206,110 @@ maybe("paper simulator restore", () => {
     expect(after!.status).toBe("expired");
     await core.getPool().query("DELETE FROM trade_proposals WHERE id=$1", [p!.id]);
   });
+
+  // --- Deriv OAuth state (single-use authorization proof) ---------------------
+
+  const TEST_USER_ID = "oauth-test-user";
+
+  async function ensureTestUser(): Promise<void> {
+    await core.getPool().query(
+      `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'x')
+       ON CONFLICT (id) DO NOTHING`,
+      [TEST_USER_ID, TEST_USER_ID],
+    );
+  }
+
+  async function seedOAuthState(state: string, expiresInMs: number): Promise<void> {
+    await ensureTestUser();
+    await core.insertOAuthState({
+      state,
+      provider: "deriv",
+      userId: TEST_USER_ID,
+      codeVerifierEnc: "v1.encrypted.verifier",
+      redirectUri: "https://wein.example/api/deriv/oauth/callback",
+      intent: "connect",
+      brokerId: null,
+      expiresAt: new Date(Date.now() + expiresInMs),
+    });
+  }
+
+  it("consumes an OAuth state exactly once", async () => {
+    const state = `state-${Date.now()}-a`;
+    await seedOAuthState(state, 60_000);
+    const first = await core.consumeOAuthState(state);
+    expect(first).not.toBeNull();
+    expect(first!.state).toBe(state);
+    // A replayed callback presents the same state; it must be refused.
+    const replay = await core.consumeOAuthState(state);
+    expect(replay).toBeNull();
+    await core.getPool().query("DELETE FROM oauth_states WHERE state=$1", [state]);
+  });
+
+  it("refuses an unknown OAuth state", async () => {
+    expect(await core.consumeOAuthState(`nope-${Date.now()}`)).toBeNull();
+  });
+
+  it("refuses an expired OAuth state", async () => {
+    const state = `state-${Date.now()}-expired`;
+    await seedOAuthState(state, -1_000);
+    expect(await core.consumeOAuthState(state)).toBeNull();
+    await core.getPool().query("DELETE FROM oauth_states WHERE state=$1", [state]);
+  });
+
+  it("lets only one of two concurrent callbacks claim the state", async () => {
+    const state = `state-${Date.now()}-race`;
+    await seedOAuthState(state, 60_000);
+    const [a, b] = await Promise.all([core.consumeOAuthState(state), core.consumeOAuthState(state)]);
+    const winners = [a, b].filter((r) => r !== null);
+    expect(winners).toHaveLength(1);
+    await core.getPool().query("DELETE FROM oauth_states WHERE state=$1", [state]);
+  });
+
+  // --- Active account selection -----------------------------------------------
+
+  it("does not replace an existing active account when a broker connects", async () => {
+    const broker = await core.createBroker({
+      provider: "deriv",
+      label: "OAuth test broker",
+      credentialsEnc: "v1.enc",
+      fingerprint: `fp-${Date.now()}`,
+      capabilities: {},
+    });
+    await core.upsertAccount(broker.id, {
+      id: `DOT${Date.now()}`, type: "demo", currency: "USD", balance: 5000, loginid: "DOT", status: "active",
+    });
+
+    // Establish an active selection first.
+    const before = await core.ensureActiveAfterConnect(broker.id);
+    expect(before.changed).toBe(true);
+    const firstSelection = before.selection;
+
+    // A second connection attempt must preserve it.
+    const again = await core.ensureActiveAfterConnect(broker.id);
+    expect(again.changed).toBe(false);
+    expect(again.selection.accountRowId).toBe(firstSelection.accountRowId);
+
+    await core.getPool().query("DELETE FROM accounts WHERE broker_id=$1", [broker.id]);
+    await core.getPool().query("DELETE FROM brokers WHERE id=$1", [broker.id]);
+  });
+
+  it("prefers a demo account when choosing a default", async () => {
+    const broker = await core.createBroker({
+      provider: "deriv",
+      label: "Selection test broker",
+      credentialsEnc: "v1.enc",
+      fingerprint: `fp-sel-${Date.now()}`,
+      capabilities: {},
+    });
+    await core.upsertAccount(broker.id, { id: `R${Date.now()}`, type: "real", currency: "USD", balance: 100, loginid: "R", status: "active" });
+    await core.upsertAccount(broker.id, { id: `D${Date.now()}`, type: "demo", currency: "USD", balance: 9999, loginid: "D", status: "active" });
+
+    // Clear any active selection, then let the connect flow choose.
+    await core.getPool().query("UPDATE accounts SET is_active=false");
+    const res = await core.ensureActiveAfterConnect(broker.id);
+    expect(res.selection.providerAccountId).toMatch(/^D/);
+
+    await core.getPool().query("DELETE FROM accounts WHERE broker_id=$1", [broker.id]);
+    await core.getPool().query("DELETE FROM brokers WHERE id=$1", [broker.id]);
+  });
 });

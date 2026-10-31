@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluateRisk, drawdownFromEquity, DEFAULT_RISK_CONFIG, type RiskConfig, type RiskContext, type TradeIntent } from "@phirst/core";
+import { evaluateRisk, drawdownFromEquity, currentExposure, lossStreakBreached, DEFAULT_RISK_CONFIG, type RiskConfig, type RiskContext, type TradeIntent } from "@phirst/core";
 
 function ctx(over: Partial<RiskContext> = {}): RiskContext {
   return {
@@ -135,5 +135,52 @@ describe("drawdownFromEquity", () => {
   });
   it("handles an empty series", () => {
     expect(drawdownFromEquity([])).toBe(0);
+  });
+});
+
+describe("currentExposure", () => {
+  it("counts open fixed-expiry contracts, which live in orders not positions", () => {
+    expect(currentExposure([60, 60, 60], [])).toBe(180);
+  });
+  it("does not double-count when a position mirrors its order", () => {
+    expect(currentExposure([100], [100])).toBe(100);
+  });
+  it("uses the position view when it is larger (e.g. running contracts)", () => {
+    expect(currentExposure([], [250])).toBe(250);
+  });
+  it("is zero with nothing open", () => {
+    expect(currentExposure([], [])).toBe(0);
+  });
+  it("treats a missing or non-numeric size as zero", () => {
+    expect(currentExposure([Number(undefined)], [Number("abc")])).toBe(0);
+  });
+});
+
+describe("lossStreakBreached", () => {
+  it("fires at the limit", () => {
+    expect(lossStreakBreached(4, 4)).toBe(true);
+  });
+  it("fires beyond the limit", () => {
+    expect(lossStreakBreached(5, 4)).toBe(true);
+  });
+  it("does not fire below the limit", () => {
+    expect(lossStreakBreached(3, 4)).toBe(false);
+  });
+  it("is disabled when the limit is zero", () => {
+    expect(lossStreakBreached(10, 0)).toBe(false);
+  });
+  it("does not fire with no losses", () => {
+    expect(lossStreakBreached(0, 4)).toBe(false);
+  });
+});
+
+describe("exposure ceiling binds on open contracts", () => {
+  it("vetoes once open contract exposure reaches the ceiling", () => {
+    // Regression: exposure was read from the position table, which is empty for
+    // fixed-expiry contracts, so maxExposure never blocked anything.
+    const openExposure = currentExposure([60, 60], []);
+    const d = evaluateRisk({ intent: intent({ amount: 60 }), config: cfg({ maxExposure: 100 }), context: ctx({ openExposure }) });
+    expect(d.approved).toBe(false);
+    expect(d.reasons.join(" ")).toMatch(/exposure/i);
   });
 });

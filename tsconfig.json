@@ -18,7 +18,10 @@
       "@phirst/core": ["packages/core/src/index.ts"],
       "@phirst/brokers": ["packages/brokers/src/index.ts"],
       "@phirst/ai": ["packages/ai/src/index.ts"],
-      "@phirst/engine": ["packages/engine/src/index.ts"]
+      "@phirst/engine": ["packages/engine/src/index.ts"],
+      "@phirst/marketdata": ["packages/marketdata/src/index.ts"],
+      "@phirst/email": ["packages/email/src/index.ts"],
+      "@phirst/supabase": ["packages/supabase/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*.ts", "apps/api/src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],

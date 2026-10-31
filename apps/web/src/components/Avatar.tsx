@@ -185,11 +185,14 @@ export function Avatar({ state, size = 72, onClick, urgency = "normal", speech, 
         ctx.restore();
       }
 
-      // The face group: everything below moves with the head.
+      // The face group: everything below moves with the head. drawFigure works in a
+      // 360-unit space centred on (180,180); recentring by -R/2 maps that space onto the
+      // canvas so the head sits in the middle and sway/rotation pivot about the centre.
       ctx.save();
       ctx.translate(cx + headX * scale, cy + headY * scale);
       ctx.rotate((headR * Math.PI) / 180);
       ctx.scale(scale, scale);
+      ctx.translate(-R / 2, -R / 2);
       drawFigure(ctx, {
         t,
         breath,

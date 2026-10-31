@@ -107,6 +107,25 @@ export function evaluateRisk({ intent, config, context }: RiskInput): RiskDecisi
   return { approved, reasons, approvedAmount: approved ? amount : 0, adjustments };
 }
 
+/**
+ * Current open exposure: the money at risk right now. Fixed-expiry contracts appear as
+ * open orders, not rows in the position table, so the two are combined by taking the
+ * larger — never the sum, which would double-count a position and its order.
+ */
+export function currentExposure(openOrderAmounts: number[], positionSizes: number[]): number {
+  const sum = (xs: number[]) => xs.reduce((a, x) => a + Math.abs(Number(x) || 0), 0);
+  return Math.max(sum(openOrderAmounts), sum(positionSizes));
+}
+
+/**
+ * True when the losing streak has reached the configured stop. The risk engine already
+ * de-risks each trade after a loss; this is the separate hard stop the owner configures.
+ * A limit of zero disables the stop.
+ */
+export function lossStreakBreached(consecutiveLosses: number, limit: number): boolean {
+  return limit > 0 && consecutiveLosses >= limit;
+}
+
 /** Peak-to-trough drawdown from an equity series (chronological order). */
 export function drawdownFromEquity(series: number[]): number {
   let peak = -Infinity;

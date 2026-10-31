@@ -42,11 +42,18 @@ export class GeminiClient {
       const result = await this.callModel(model, body, timeoutMs);
       if (result.ok) return result;
       last = result;
-      // Only a retired or unknown model justifies trying the next one.
-      if (!/HTTP 404/.test(result.error ?? "")) return result;
+      // Retired/unknown models (404) and transient provider faults (429, 5xx) are worth
+      // retrying on the next model: quotas and capacity are per-model. A 400/403 is a
+      // request or credential fault that every model would reject, so it stops here.
+      if (!this.isFailoverWorthy(result.error)) return result;
       this.opts.log?.("gemini model unavailable, trying fallback", { model, error: result.error });
     }
     return last;
+  }
+
+  private isFailoverWorthy(error: string | null): boolean {
+    if (!error) return false;
+    return /HTTP (404|429|5\d\d)/.test(error);
   }
 
   private async callModel(model: string, body: Record<string, unknown>, timeoutMs: number): Promise<GeminiResult<string>> {
@@ -64,9 +71,11 @@ export class GeminiClient {
       });
       const text = await res.text();
       if (!res.ok) {
+        // Log the provider's own wording, but keep it out of the user-facing error: a raw
+        // upstream body is noise to the owner and may carry account-identifying detail.
         const detail = text.slice(0, 300);
         this.opts.log?.("gemini call failed", { status: res.status, detail, model });
-        return { ok: false, value: null, error: `Gemini HTTP ${res.status}: ${detail}`, model };
+        return { ok: false, value: null, error: `Gemini HTTP ${res.status}`, model };
       }
       const parsed = JSON.parse(text) as {
         candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
@@ -83,27 +92,52 @@ export class GeminiClient {
     }
   }
 
-  async generate(prompt: string, opts: { system?: string; temperature?: number; maxTokens?: number } = {}): Promise<GeminiResult<string>> {
+  /**
+   * Generation config shared by both entry points.
+   *
+   * Gemini 3.x charges internal reasoning against `maxOutputTokens`. On a 700-token
+   * budget a short prompt spent 66 tokens thinking and the answer arrived cut off. The
+   * thinking budget is therefore set explicitly: zero for factual, latency-sensitive
+   * answers, and a small allowance when a caller wants deeper reasoning.
+   */
+  private generationConfig(opts: { temperature: number; maxTokens: number; thinkingBudget?: number; json?: boolean }): Record<string, unknown> {
+    return {
+      temperature: opts.temperature,
+      maxOutputTokens: opts.maxTokens,
+      thinkingConfig: { thinkingBudget: opts.thinkingBudget ?? 0 },
+      ...(opts.json ? { responseMimeType: "application/json" } : {}),
+    };
+  }
+
+  async generate(
+    prompt: string,
+    opts: { system?: string; temperature?: number; maxTokens?: number; thinkingBudget?: number } = {},
+  ): Promise<GeminiResult<string>> {
     return this.call({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       ...(opts.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
-      generationConfig: {
+      generationConfig: this.generationConfig({
         temperature: opts.temperature ?? 0.6,
-        maxOutputTokens: opts.maxTokens ?? 1024,
-      },
+        maxTokens: opts.maxTokens ?? 1024,
+        thinkingBudget: opts.thinkingBudget,
+      }),
     });
   }
 
   /** Ask for JSON and parse it. Returns an error instead of guessing when parsing fails. */
-  async generateJson<T>(prompt: string, opts: { system?: string; temperature?: number; maxTokens?: number } = {}): Promise<GeminiResult<T>> {
+  async generateJson<T>(
+    prompt: string,
+    opts: { system?: string; temperature?: number; maxTokens?: number; thinkingBudget?: number } = {},
+  ): Promise<GeminiResult<T>> {
     const res = await this.call({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       ...(opts.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
-      generationConfig: {
+      generationConfig: this.generationConfig({
         temperature: opts.temperature ?? 0.3,
-        maxOutputTokens: opts.maxTokens ?? 1024,
-        responseMimeType: "application/json",
-      },
+        maxTokens: opts.maxTokens ?? 1024,
+        thinkingBudget: opts.thinkingBudget,
+        json: true,
+      }),
     });
     if (!res.ok || res.value === null) return { ok: false, value: null, error: res.error, model: res.model };
     try {

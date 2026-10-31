@@ -10,7 +10,7 @@ import {
   audit,
   type Config,
 } from "@phirst/core";
-import { GeminiClient, phirstReply, PHIRST2_IDENTITY, DEFAULT_VOICE_SETTINGS } from "@phirst/ai";
+import { GeminiClient, phirstReply, PHIRST2_IDENTITY, DEFAULT_VOICE_SETTINGS, ALLOWED_ACCENTS } from "@phirst/ai";
 import type { TradingEngine } from "@phirst/engine";
 import { json, error, type RequestContext, type Router } from "../http.ts";
 
@@ -112,10 +112,14 @@ export function registerPhirstRoutes(router: Router, engine: TradingEngine, gemi
       const pitch = Number(merged.pitch);
       if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) { error(res, 400, "rate must be between 0.5 and 2."); return; }
       if (!Number.isFinite(pitch) || pitch < 0 || pitch > 2) { error(res, 400, "pitch must be between 0 and 2."); return; }
+      if (!ALLOWED_ACCENTS.includes(String(merged.accent) as (typeof ALLOWED_ACCENTS)[number])) {
+        error(res, 400, `accent must be one of: ${ALLOWED_ACCENTS.join(", ")}.`);
+        return;
+      }
       const clean = {
         enabled: Boolean(merged.enabled),
         voice: merged.voice,
-        accent: String(merged.accent ?? "ja-JP-inspired"),
+        accent: String(merged.accent),
         rate,
         pitch,
         pushToTalk: Boolean(merged.pushToTalk),
