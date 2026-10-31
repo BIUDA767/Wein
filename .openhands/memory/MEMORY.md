@@ -98,3 +98,13 @@ Concise index of durable facts. Detail lives in the daily logs.
 - Suite 204 tests / 17 files. AGENTS.md invariants 54–60.
 - Awaiting `DERIV_OAUTH_CLIENT_ID` + `DERIV_OAUTH_REDIRECT_URI` in the Deriv dashboard; the
   button reports "setup needed" until then rather than pretending to work.
+
+## Sandbox access (for handing the build to the owner)
+- Public link: `https://work-1-kznopodrculyuhfn.prod-runtime.all-hands.dev/` (work-1 = web app;
+  work-2 = raw API, root 404). Owner login `baelay` / password created via `/api/auth/setup`.
+- `PHIRST_WEB_ORIGIN` must be the public host, else the Deriv OAuth redirect points at
+  `localhost` and the flow can never complete from the link.
+- **`npm run start:api` does not read `.env`** — `set -a; . ./.env; set +a` first, or env
+  edits silently no-op. This wasted a cycle; remember it.
+- `DERIV_APP_ID=1089` is Deriv's public example id; it yields 401 "Invalid application" for
+  both PAT and OAuth until a real app is registered under the token's Deriv account.

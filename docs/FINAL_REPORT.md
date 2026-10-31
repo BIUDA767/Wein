@@ -91,8 +91,15 @@ only where the provider genuinely supports it (Deriv and Paper); it is not claim
 
 ## Awaiting credentials or subscriptions
 
-- **Deriv trading** (as opposed to market data): a Personal Access Token and an app id registered
-  on the Deriv dashboard.
+- **Deriv trading** (as opposed to market data). Two supported paths, both requiring an app id
+  registered under the Deriv account that owns the credentials:
+  - **OAuth 2.0 one-tap** (preferred): register an OAuth2 client at the Deriv dashboard and set
+    `DERIV_OAUTH_CLIENT_ID` plus `DERIV_OAUTH_REDIRECT_URI` (must equal the value registered at
+    Deriv exactly). Then "Connect Deriv" completes the PKCE flow in-app.
+  - **Personal Access Token**: generate a PAT in Deriv and set `DERIV_APP_ID` to the app id
+    registered for that token, then connect with the PAT.
+  The placeholder `DERIV_APP_ID=1089` is Deriv's public example id; it is rejected with
+  `401 "Invalid application"` for both paths until a real app id is registered.
 - **Gemini**: `GEMINI_API_KEY`. Without it the companion reports measured facts only and does not
   invent analysis.
 - **Telegram**: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_IDS`.
