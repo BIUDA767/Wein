@@ -40,6 +40,10 @@ sudo docker exec "$PG_NAME" psql -U "$PG_USER" -d "$PG_DB" -tc "SELECT 1 FROM pg
 
 say "3. Migrations"
 npm run migrate 2>&1 | grep -E '"msg":"migrations complete"' || echo "   (migrate output above)"
+# The integration tests connect to phirst_test, so it needs the same schema.
+# Without this they fail with 'relation "brokers" does not exist'.
+DATABASE_URL="postgres://$PG_USER:phirst_dev_pw@localhost:5432/phirst_test" npm run migrate 2>&1 \
+  | grep -E '"msg":"migrations complete"' || echo "   (test-db migrate output above)"
 
 say "4. API"
 if ! curl -s -m 3 -o /dev/null "http://localhost:$PORT_API/api/health"; then
