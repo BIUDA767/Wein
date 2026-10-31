@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Emblem } from "./Emblem";
 
 /**
  * WEIN launch sequence.
@@ -202,6 +203,15 @@ export function LaunchSequence({ onDone }: { onDone: () => void }) {
       className={`fixed inset-0 z-[200] cursor-pointer transition-opacity duration-[600ms] ${phase === "fading" ? "opacity-0" : "opacity-100"}`}
     >
       <canvas ref={canvasRef} />
+      {/* The crystal emblem settles above the wordmark as the ensō resolves. */}
+      <div
+        className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 transition-all duration-[900ms] ease-out ${
+          phase === "fading" ? "opacity-0" : "opacity-100"
+        }`}
+        style={{ transform: `translate(-50%, calc(-50% - ${Math.min(150, (typeof window !== "undefined" ? Math.min(window.innerWidth, window.innerHeight) : 800) * 0.2)}px))` }}
+      >
+        <Emblem size={64} glow />
+      </div>
       <button
         onClick={finish}
         className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full border border-white/12 bg-white/5 px-5 py-2 text-[11.5px] font-medium text-white/60 backdrop-blur active:scale-95"

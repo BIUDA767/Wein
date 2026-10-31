@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiFailure, type MeResponse } from "@/lib/api";
 import { Spinner } from "./ui";
+import { Emblem } from "./Emblem";
 import { SessionProvider } from "@/lib/session";
 
 export type AuthMode = "setup" | "login" | "register";
@@ -103,11 +104,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-[100dvh] flex-col items-center justify-center px-6 py-10">
       <div className="w-full max-w-[380px] animate-fade-up">
         <div className="mb-8 text-center">
-          <div
-            className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl border border-champagne-500/30"
-            style={{ background: "linear-gradient(160deg, rgba(212,175,55,0.18), rgba(0,200,83,0.08))" }}
-          >
-            <span className="font-display text-[26px] font-semibold text-champagne-300">W</span>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center">
+            <Emblem size={64} glow />
           </div>
           <h1 className="font-display text-[30px] tracking-[0.18em] text-white">WEIN</h1>
           <p className="mt-1 text-[13px] text-white/40" lang="ja">ワイン</p>

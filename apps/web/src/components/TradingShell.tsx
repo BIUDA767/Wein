@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, type AvatarState } from "./Avatar";
+import { Emblem } from "./Emblem";
 import { Chart, type ChartStyle, type IndicatorKey } from "./Chart";
 import { Card, ConfirmDialog, Dot, EmptyState, Pill, Row, SectionTitle, Sheet, Spinner, Toast } from "./ui";
 import { api, ApiFailure, type Candle, type ChatReply, type EngineStatus, type OrderRecord, type PerformanceReport, type PositionRecord } from "@/lib/api";
@@ -296,9 +297,7 @@ export function TradingShell() {
       <header className="safe-top sticky top-0 z-40 border-b border-white/6 bg-ink-950/85 px-4 pb-3 backdrop-blur-xl">
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-champagne-500/25 bg-champagne-500/10">
-              <span className="font-display text-[15px] font-semibold text-champagne-300">W</span>
-            </div>
+            <Emblem size={30} className="shrink-0 drop-shadow-[0_2px_6px_rgba(212,175,55,0.25)]" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-display text-[15px] tracking-[0.14em] text-white">WEIN</span>

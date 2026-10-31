@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Emblem } from "./Emblem";
 
 export function Card({ children, className = "", raised = false }: { children: React.ReactNode; className?: string; raised?: boolean }) {
   return <div className={`${raised ? "glass-raised" : "glass"} p-4 ${className}`}>{children}</div>;
@@ -125,6 +126,7 @@ export function Spinner({ size = 16 }: { size?: number }) {
 export function EmptyState({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center">
+      <Emblem size={26} className="mx-auto mb-2.5 opacity-40" />
       <div className="text-[13px] font-medium text-white/70">{title}</div>
       <div className="mt-1 text-[12px] leading-relaxed text-white/40">{body}</div>
     </div>
