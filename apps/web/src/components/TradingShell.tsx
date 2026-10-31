@@ -589,22 +589,24 @@ export function TradingShell() {
         {nav === "more" && more === null && (
           <Card>
             <SectionTitle>More</SectionTitle>
-            {(Object.keys(MORE_LABELS) as Array<Exclude<MoreKey, "hub">>)
-              .filter((k) => k !== "admin" || isOwner)
-              .filter((k) => k !== "members" || isModerator)
-              .map((k) => (
-                <button
-                  key={k}
-                  onClick={() => { tap(); setMore(k); }}
-                  className="flex w-full items-center justify-between border-b border-white/6 py-3.5 text-left last:border-0 active:opacity-70"
-                >
-                  <span className="text-[13.5px] text-white/85">{MORE_LABELS[k]}</span>
-                  <span className="text-white/30">›</span>
-                </button>
-              ))}
+            <div className="-mx-1">
+              {(Object.keys(MORE_LABELS) as Array<Exclude<MoreKey, "hub">>)
+                .filter((k) => k !== "admin" || isOwner)
+                .filter((k) => k !== "members" || isModerator)
+                .map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => { tap(); setMore(k); }}
+                    className="group flex w-full items-center justify-between rounded-xl px-2 py-3.5 text-left transition hover:bg-white/[0.035] active:bg-white/[0.06]"
+                  >
+                    <span className="text-[13.5px] text-white/85">{MORE_LABELS[k]}</span>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full border border-white/8 text-[13px] text-white/30 transition group-hover:border-white/16 group-hover:text-white/55">›</span>
+                  </button>
+                ))}
+            </div>
             <button
               onClick={() => { tap(); void api.post("/api/auth/logout").then(() => window.location.reload()); }}
-              className="mt-3 w-full rounded-2xl border border-ruby-500/30 bg-ruby-500/8 py-3 text-[13px] font-semibold text-ruby-400 active:scale-[0.99]"
+              className="mt-3 w-full rounded-2xl border border-ruby-500/30 bg-ruby-500/8 py-3 text-[13px] font-semibold text-ruby-400 transition hover:bg-ruby-500/14 active:scale-[0.99]"
             >
               Sign out
             </button>
@@ -613,7 +615,9 @@ export function TradingShell() {
 
         {nav === "more" && more !== null && (
           <>
-            <button className="mb-3 text-[13px] text-white/50 active:opacity-70" onClick={() => { tap(); setMore(null); }}>‹ Back</button>
+            <button className="mb-3 flex items-center gap-1.5 text-[13px] font-medium text-white/55 transition hover:text-white/80 active:opacity-70" onClick={() => { tap(); setMore(null); }}>
+              <span className="text-[15px] leading-none">‹</span> Back
+            </button>
             {more === "history" && <HistoryScreen notify={notify} onOpenControls={() => setPanelsOpen(true)} engine={engine} />}
             {more === "notifications" && <NotificationsScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
             {more === "community" && <CommunityScreen notify={notify} />}
