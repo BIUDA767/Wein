@@ -1,28 +1,50 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * WEIN design system. Dark only, by specification.
+ *
+ * The token names predate this palette (ink/emerald/ruby/champagne) and are kept so
+ * existing markup keeps working; the values are the specified WEIN colours.
+ */
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Graphite and black surfaces.
-        ink: { 950: "#05060a", 900: "#0a0c12", 850: "#0e1119", 800: "#131722", 700: "#1b2030", 600: "#242a3d" },
-        // Restrained emerald accent.
-        emerald: { 400: "#3ddc97", 500: "#10b981", 600: "#059669", 700: "#047857" },
-        // Ruby accent for risk and sell.
-        ruby: { 400: "#ff5c7a", 500: "#f43f5e", 600: "#e11d48" },
-        // Champagne detailing.
-        champagne: { 300: "#f4e4bc", 400: "#e8d5a3", 500: "#d4b878", 600: "#b89a5c" },
+        // Black and graphite surfaces. Background runs #0A0A0B -> #121214.
+        ink: {
+          950: "#0A0A0B", // app background
+          900: "#0E0E10", // elevated background
+          850: "#121214", // background light end / sheets
+          800: "#1C1C1F", // cards
+          700: "#252528", // inputs
+          600: "#2E2E33", // hairlines, hover
+        },
+        // Emerald trading accent -> specified green.
+        emerald: { 400: "#34D96A", 500: "#00C853", 600: "#00A344", 700: "#008036" },
+        // Ruby accent for sell and loss -> specified red.
+        ruby: { 400: "#FF6B62", 500: "#FF3B30", 600: "#D92B21" },
+        // Gold detailing -> specified gold.
+        champagne: { 300: "#E8CE7A", 400: "#DFC25A", 500: "#D4AF37", 600: "#A98A2B" },
+        // Restrained cyan for PHIRST2 only.
+        cyan: { 300: "#7FF0FF", 400: "#3DDCFF", 500: "#00C2E0", 600: "#0092AA" },
+        muted: "#A0A0A5",
       },
       fontFamily: {
         display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
+      borderRadius: {
+        card: "14px", // cards 12-16px
+        pill: "30px", // large buttons 28-32px
+      },
       boxShadow: {
         glass: "0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)",
-        glow: "0 0 24px rgba(16,185,129,0.25)",
-        rubyglow: "0 0 24px rgba(244,63,94,0.25)",
+        glow: "0 0 24px rgba(0,200,83,0.25)",
+        rubyglow: "0 0 24px rgba(255,59,48,0.25)",
+        cyanglow: "0 0 22px rgba(61,220,255,0.35)",
+        goldglow: "0 0 22px rgba(212,175,55,0.28)",
       },
       backdropBlur: { xs: "2px" },
       keyframes: {
@@ -30,7 +52,8 @@ const config: Config = {
         "slide-up": { "0%": { transform: "translateY(100%)" }, "100%": { transform: "translateY(0)" } },
         "pulse-soft": { "0%,100%": { opacity: "1" }, "50%": { opacity: "0.55" } },
         breathe: { "0%,100%": { transform: "scale(1)" }, "50%": { transform: "scale(1.035)" } },
-        "ticker-flash": { "0%": { backgroundColor: "rgba(61,220,151,0.18)" }, "100%": { backgroundColor: "transparent" } },
+        "ticker-flash": { "0%": { backgroundColor: "rgba(0,200,83,0.18)" }, "100%": { backgroundColor: "transparent" } },
+        "wave-bar": { "0%,100%": { transform: "scaleY(0.32)" }, "50%": { transform: "scaleY(1)" } },
       },
       animation: {
         "fade-up": "fade-up 0.32s cubic-bezier(0.22,1,0.36,1)",
