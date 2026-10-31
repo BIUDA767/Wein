@@ -25,8 +25,8 @@ export function createAdapter(opts: CreateAdapterOptions): BrokerAdapter {
     return new DerivAdapter(opts.credentials, opts.log);
   }
   if (opts.provider === "paper") {
-    // Paper fills use the real public Deriv market data stream.
-    const market = new DerivAdapter({ appId: opts.credentials.appId ?? "1089" }, opts.log);
+    // Paper fills use the real public Deriv market data stream, which needs no app id.
+    const market = new DerivAdapter({ appId: opts.credentials.appId }, opts.log);
     return new PaperAdapter(market, opts.credentials, opts.paperStartingBalance ?? 10_000, opts.paperRestore);
   }
   throw new BrokerError(`No adapter branch for ${opts.provider}`, "unsupported");

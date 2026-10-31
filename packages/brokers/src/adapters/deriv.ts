@@ -18,10 +18,40 @@ interface DerivAccount {
   account_type?: string;
   type?: string;
   currency?: string;
-  balance?: number;
+  /** Deriv returns this as a decimal string (e.g. "10000.00"), not a JSON number. */
+  balance?: number | string;
   loginid?: string;
   is_virtual?: boolean | number;
   status?: string;
+}
+
+/** Deriv serialises money as a string; coerce without inventing a value for a missing one. */
+export function toNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Deriv's OTP endpoint returns the ready-to-use authenticated socket as `data.url`. The other
+ * spellings are accepted defensively, and a bare `otp` is assembled into a URL as a last
+ * resort. Reading only `ws_url`/`wsUrl` silently broke every live order, so this is extracted
+ * so it can be covered by a test rather than rediscovered in production.
+ */
+export function resolveTradingWsUrl(
+  payload: { data?: unknown } & Record<string, unknown>,
+  accountType: "demo" | "real",
+): string | null {
+  const data = (payload.data ?? payload) as { url?: string; ws_url?: string; wsUrl?: string; otp?: string };
+  const direct = data.url ?? data.ws_url ?? data.wsUrl;
+  if (direct) return direct;
+  if (data.otp) {
+    return `wss://api.derivws.com/trading/v1/options/ws/${accountType}?otp=${encodeURIComponent(data.otp)}`;
+  }
+  return null;
 }
 
 function classifyAccount(a: DerivAccount): "demo" | "real" {
@@ -54,6 +84,18 @@ export class DerivAdapter implements BrokerAdapter {
   private accounts: BrokerAccount[] = [];
   private instrumentsCache: Instrument[] | null = null;
   private activeAccountId: string | null = null;
+  /** Measured tick interval per symbol, in seconds. Deriv offers tick contracts only. */
+  private tickIntervalCache = new Map<string, number>();
+
+  /**
+   * Deriv's tick expiry is capped at 10 ticks, so any duration longer than ten ticks must be
+   * placed as an intraday contract in seconds (minimum 15s). This fallback is used only if
+   * the tick interval cannot be measured, and 2s matches the observed rate for the standard
+   * volatility indices.
+   */
+  private static readonly DEFAULT_TICK_SEC = 2;
+  private static readonly MAX_TICK_DURATION = 10;
+  private static readonly MIN_INTRADAY_SEC = 15;
 
   constructor(
     private readonly creds: BrokerCredentials,
@@ -78,7 +120,8 @@ export class DerivAdapter implements BrokerAdapter {
       notes: [
         "Market data is served from Deriv's public WebSocket and needs no authentication.",
         "Trading requires a PAT plus a Deriv-App-ID registered on the Deriv dashboard.",
-        "Minimum expiry is 5 ticks; on 1-second volatility indices that is 5 seconds.",
+        "Tick contracts are capped at 10 ticks; longer expiries use intraday contracts with a 15s minimum.",
+        "The effective expiry is measured per symbol from Deriv's own tick history, not assumed.",
         "Deriv Options sells fixed-expiry contracts, not conventional market orders.",
         "Contract cancellation is only available for specific contract types via the sell endpoint.",
       ],
@@ -109,6 +152,45 @@ export class DerivAdapter implements BrokerAdapter {
   /** A 401 from an OAuth token means the token expired; the owner must reconnect. */
   private static isExpiredOAuth(status: number, authMethod: string | undefined): boolean {
     return status === 401 && authMethod === "oauth";
+  }
+
+  /**
+   * The symbol's real tick interval in seconds, measured from Deriv's own tick history.
+   * Never assumed: if it cannot be measured the standard-index fallback is used, and the
+   * caller still clamps the duration to the provider's documented tick ceiling.
+   */
+  private async tickIntervalSec(symbol: string): Promise<number> {
+    const cached = this.tickIntervalCache.get(symbol);
+    if (cached) return cached;
+    try {
+      const res = await this.publicWs.request({ ticks_history: symbol, count: 3, end: "latest", style: "ticks" });
+      const times = (res.history as { times?: number[] } | undefined)?.times ?? [];
+      if (times.length >= 2) {
+        const delta = times[times.length - 1] - times[times.length - 2];
+        if (Number.isFinite(delta) && delta > 0) {
+          this.tickIntervalCache.set(symbol, delta);
+          return delta;
+        }
+      }
+    } catch {
+      // Measurement is best-effort; the fallback below keeps the order placeable.
+    }
+    return DerivAdapter.DEFAULT_TICK_SEC;
+  }
+
+  /**
+   * Choose the duration unit Deriv actually accepts for the requested number of seconds.
+   * Tick contracts are used only when the request fits inside the 10-tick ceiling; anything
+   * longer is sent as an intraday contract, and the effective expiry is reported back so the
+   * UI never shows a duration the provider did not honour.
+   */
+  private async resolveDuration(symbol: string, requestedSec: number): Promise<{ unit: "t" | "s"; value: number; effectiveSec: number }> {
+    const tickSec = await this.tickIntervalSec(symbol);
+    const ticks = Math.round(requestedSec / tickSec);
+    if (ticks >= 1 && ticks <= DerivAdapter.MAX_TICK_DURATION) {
+      return { unit: "t", value: ticks, effectiveSec: ticks * tickSec };
+    }
+    return { unit: "s", value: Math.max(DerivAdapter.MIN_INTRADAY_SEC, Math.round(requestedSec)), effectiveSec: Math.max(DerivAdapter.MIN_INTRADAY_SEC, Math.round(requestedSec)) };
   }
 
   /** Deriv returns HTTP 200 with an `error` object for many failures; surface it loudly. */
@@ -196,7 +278,7 @@ export class DerivAdapter implements BrokerAdapter {
       id: String(a.account_id ?? a.loginid ?? ""),
       type: classifyAccount(a),
       currency: a.currency ?? "USD",
-      balance: typeof a.balance === "number" ? a.balance : null,
+      balance: toNumber(a.balance),
       loginid: a.loginid,
       status: a.status ?? null,
       label: `${classifyAccount(a) === "demo" ? "Demo" : "Real"} ${a.currency ?? ""}`.trim(),
@@ -301,15 +383,10 @@ export class DerivAdapter implements BrokerAdapter {
     const accountId = this.activeAccountId ?? this.creds.accountId;
     if (!accountId) throw new BrokerError("No Deriv account selected for trading", "auth");
     const otp = await this.rest(`/trading/v1/options/accounts/${encodeURIComponent(accountId)}/otp`, { method: "POST" });
-    const data = (otp.data ?? otp) as { ws_url?: string; wsUrl?: string; otp?: string };
-    let wsUrl = data.ws_url ?? data.wsUrl;
-    if (!wsUrl && data.otp) {
-      const acct = this.accounts.find((a) => a.id === accountId);
-      const kind = acct?.type === "real" ? "real" : "demo";
-      wsUrl = `wss://api.derivws.com/trading/v1/options/ws/${kind}?otp=${encodeURIComponent(data.otp)}`;
-    }
+    const acct = this.accounts.find((a) => a.id === accountId);
+    const wsUrl = resolveTradingWsUrl(otp, acct?.type === "real" ? "real" : "demo");
     if (!wsUrl) throw new BrokerError("OTP endpoint did not return a WebSocket URL", "unknown");
-    const client = new WsClient(() => wsUrl!, "deriv-trading", this.log);
+    const client = new WsClient(() => wsUrl, "deriv-trading", this.log);
     await client.connect();
     this.tradingWs = client;
     return client;
@@ -323,18 +400,20 @@ export class DerivAdapter implements BrokerAdapter {
 
   async placeOrder(intent: TradeIntent): Promise<ExecutionResult> {
     const ws = await this.ensureTradingWs();
-    const durationSec = intent.durationSec ?? 300;
-    const durationTicks = Math.max(5, Math.round(durationSec));
+    const requestedSec = intent.durationSec ?? 300;
     const contractType = this.mapContractType(intent.side, intent.orderType);
+    const duration = await this.resolveDuration(intent.symbol, requestedSec);
     const proposalRes = await ws.request({
       proposal: 1,
       amount: intent.amount,
       basis: "stake",
       contract_type: contractType,
       currency: this.accounts.find((a) => a.id === this.activeAccountId)?.currency ?? "USD",
-      duration: durationTicks,
-      duration_unit: "t",
-      symbol: intent.symbol,
+      duration: duration.value,
+      duration_unit: duration.unit,
+      // The options trading API names this `underlying_symbol`; a `symbol` field is
+      // rejected with "Input validation failed: symbol".
+      underlying_symbol: intent.symbol,
     });
     if (proposalRes.error) {
       const e = proposalRes.error as { message?: string; code?: string };
@@ -355,8 +434,11 @@ export class DerivAdapter implements BrokerAdapter {
     return {
       brokerOrderId: String(buy.contract_id),
       status: "open",
-      fillPrice: typeof buy.buy_price === "number" ? buy.buy_price : null,
-      payout: typeof buy.payout === "number" ? buy.payout : null,
+      fillPrice: toNumber(buy.buy_price),
+      payout: toNumber(buy.payout),
+      // The expiry the provider actually accepted, which may differ from the request when a
+      // sub-15s duration is widened to Deriv's intraday minimum.
+      effectiveDurationSec: duration.effectiveSec,
       raw: buyRes,
     };
   }
@@ -371,15 +453,15 @@ export class DerivAdapter implements BrokerAdapter {
     const ws = await this.ensureTradingWs();
     const res = await ws.request({ proposal_open_contract: 1, contract_id: Number(brokerOrderId) });
     const poc = res.proposal_open_contract as
-      | { is_sold?: number | boolean; profit?: number; entry_spot?: number; payout?: number; status?: string }
+      | { is_sold?: number | boolean; profit?: unknown; entry_spot?: unknown; payout?: unknown; status?: string }
       | undefined;
     if (!poc) return null;
     const sold = poc.is_sold === 1 || poc.is_sold === true;
     return {
       status: sold ? "settled" : "open",
-      profit: typeof poc.profit === "number" ? poc.profit : null,
-      fillPrice: typeof poc.entry_spot === "number" ? poc.entry_spot : null,
-      payout: typeof poc.payout === "number" ? poc.payout : null,
+      profit: toNumber(poc.profit),
+      fillPrice: toNumber(poc.entry_spot),
+      payout: toNumber(poc.payout),
     };
   }
 
@@ -390,12 +472,12 @@ export class DerivAdapter implements BrokerAdapter {
     const contracts = (res.portfolio as { contracts?: Array<Record<string, unknown>> } | undefined)?.contracts ?? [];
     return contracts.map((c) => ({
       brokerPositionId: String(c.contract_id ?? ""),
-      symbol: String(c.symbol ?? ""),
+      symbol: String(c.symbol ?? c.underlying_symbol ?? ""),
       side: String(c.contract_type ?? "").toUpperCase() === "PUT" ? "sell" : "buy",
-      size: Number(c.buy_price ?? 0),
-      entryPrice: typeof c.entry_spot === "number" ? c.entry_spot : null,
-      currentPrice: typeof c.current_spot === "number" ? c.current_spot : null,
-      unrealizedPnl: typeof c.profit === "number" ? c.profit : null,
+      size: toNumber(c.buy_price) ?? 0,
+      entryPrice: toNumber(c.entry_spot),
+      currentPrice: toNumber(c.current_spot),
+      unrealizedPnl: toNumber(c.profit),
     }));
   }
 

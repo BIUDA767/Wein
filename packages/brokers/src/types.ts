@@ -25,6 +25,12 @@ export interface ExecutionResult {
   status: OrderStatus;
   fillPrice: number | null;
   payout: number | null;
+  /**
+   * The expiry the provider actually accepted, when it can differ from the request. Deriv
+   * widens a sub-15s intraday duration to its 15s minimum and rounds to whole ticks, so the
+   * stored order records what was really placed rather than what was asked for.
+   */
+  effectiveDurationSec?: number;
   /** Raw provider payload, retained for audit. Never contains credentials. */
   raw: unknown;
 }

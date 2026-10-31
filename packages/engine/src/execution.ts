@@ -53,6 +53,8 @@ export async function executeIntent(deps: ExecutionDeps, intent: TradeIntent): P
       status: result.status,
       fillPrice: result.fillPrice,
       payout: result.payout,
+      // Record the expiry the provider accepted when it differs from the request.
+      ...(result.effectiveDurationSec !== undefined ? { durationSec: result.effectiveDurationSec } : {}),
     });
     deps.log.info("order placed", {
       orderId: id,

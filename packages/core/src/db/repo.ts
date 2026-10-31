@@ -297,6 +297,7 @@ export async function updateOrder(
     fillPrice: number | null;
     payout: number | null;
     profit: number | null;
+    durationSec: number | null;
     error: string | null;
     settledAt: string | null;
   }>,
@@ -309,6 +310,7 @@ export async function updateOrder(
     fillPrice: "fill_price",
     payout: "payout",
     profit: "profit",
+    durationSec: "duration_sec",
     error: "error",
     settledAt: "settled_at",
   };

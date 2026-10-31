@@ -279,6 +279,11 @@ maybe("paper simulator restore", () => {
       id: `DOT${Date.now()}`, type: "demo", currency: "USD", balance: 5000, loginid: "DOT", status: "active",
     });
 
+    // The invariant under test is global: a connection only claims an *empty* active slot.
+    // Clear any selection left by another test (or the running app's own database), otherwise
+    // this asserts against pre-existing state rather than the behaviour being tested.
+    await core.getPool().query("UPDATE accounts SET is_active=false");
+
     // Establish an active selection first.
     const before = await core.ensureActiveAfterConnect(broker.id);
     expect(before.changed).toBe(true);
