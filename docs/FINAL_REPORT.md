@@ -178,3 +178,45 @@ longer disabled.
 preferences load/update/persistence/rejection and password-change validation. Live checks:
 preferences round-trip through the public host, and a full password change and revert
 (21 stale sessions revoked on the first change).
+
+---
+
+## Addendum — platform expansion (invite-only, community, owner administration)
+
+### Implemented and verified
+
+| Area | Status | Evidence |
+| --- | --- | --- |
+| Invite-only registration | Working | `scripts/wein-smoke.sh` checks 4–6 |
+| Single-owner guarantee | Working | Unique partial index; checks 1–2 |
+| Role authorisation (owner / moderator / member) | Working | Router-enforced; check 7 |
+| Global live-trading master switch | Working | Exact-phrase gate; checks 8–9 |
+| PHIRST2 automated moderation | Working | Deterministic screener; checks 10–12, 9 unit tests |
+| Community feed, comments, likes | Working | Checks 13–14 |
+| Private messaging | Working | Member-scoped; check 15 |
+| Suspension removes access | Working | Check 16 |
+| Owner dashboard (invites, members, catalog, moderation) | Working | Live in the browser |
+| Broker capability reporting | Working | `/api/admin/broker-catalog` reports `implemented` truthfully |
+
+### Tests
+
+- `npm run verify`: typecheck clean across all workspaces, **114 tests pass** in 11 files.
+- `SMOKE_RESET=1 ./scripts/wein-smoke.sh`: **25 of 25** end-to-end checks pass.
+- Production web build succeeds.
+
+### Still awaiting credentials or subscriptions
+
+- **Deriv trading.** Market data works with the public app id. Placing orders needs a
+  Personal Access Token and a Deriv-App-ID registered on the Deriv dashboard.
+- **OANDA, Binance, Alpaca, Interactive Brokers.** Not implemented. Each is listed with
+  exactly what it requires. Selecting one does not pretend to work.
+- **Telegram remote control.** Implemented; needs `TELEGRAM_BOT_TOKEN` and an allowlist.
+- **Gemini.** Research and deep analysis need `GEMINI_API_KEY`. Without it PHIRST2 reports
+  measured facts only and says the model is unavailable.
+
+### Known limitations
+
+- The avatar is drawn procedurally and lip-sync is text-and-timing based. Browsers expose no
+  raw audio for synthesised speech, so it is not phoneme-accurate.
+- Deposits and withdrawals read zero for the paper simulator, which has no such history.
+- Mobile packaging (Capacitor) and the private download portal are the next phase.

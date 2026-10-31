@@ -104,3 +104,28 @@ the behaviour it protects.
 30. Password changes require the current password and revoke every other session
     (`deleteOtherSessions`), keeping the session that made the change. A session alone must
     not be enough to lock the owner out.
+
+31. Registration is invite-only. `/api/auth/setup` creates the owner once and refuses
+    afterwards; every other account is created only by `/api/auth/register` with a valid,
+    unused, unrevoked, unexpired invite. The unique partial index
+    `users_single_owner_idx ON users(role) WHERE role='owner'` makes a second owner
+    impossible at the database level, so ownership cannot be reassigned through any route.
+32. Role authorisation is enforced in the router, not the handler. `ownerOnly` and
+    `moderatorOnly` are checked in `Router.dispatch` before the handler runs, so a new
+    route cannot forget its role check. The client only decides what to render; it never
+    decides what it is allowed to do.
+33. Live trading has two independent gates. Per account: the engine requires the exact
+    confirmation phrase and the broker to report a real-money capability. Platform wide:
+    the owner's `liveTradingEnabled` flag. The engine refuses a live order when either
+    gate is closed, checked again at order time in `tick` and `manualOrder`, not only at
+    mode change.
+34. PHIRST2 automated moderation is deterministic and local, never an LLM call, so a
+    moderation decision cannot be skipped when the model is unreachable. It returns the
+    matched phrases as evidence, the caller records the action in `moderation_actions`,
+    and every automated action is reversible by the owner. A blocked post is never stored.
+35. Community and messaging responses expose only username, display name, avatar seed,
+    role and the content the member chose to publish. Balances, broker identifiers,
+    credentials and private positions never appear in a community payload.
+36. A suspended member is treated as unauthenticated. `Router.authenticate` returns null
+    for a suspended account, so every authenticated route refuses it without each handler
+    repeating the check.
