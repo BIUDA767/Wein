@@ -27,6 +27,7 @@ import { registerMarketRoutes } from "./routes/market.ts";
 import { registerPhirstRoutes } from "./routes/phirst.ts";
 import { registerTelegramRoutes } from "./routes/telegram.ts";
 import { registerPreferencesRoutes } from "./routes/preferences.ts";
+import { registerWorkspaceRoutes } from "./routes/workspace.ts";
 import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCommunityRoutes } from "./routes/community.ts";
 import { registerProfileRoutes } from "./routes/profile.ts";
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
     }
   });
   registerPreferencesRoutes(router);
+  registerWorkspaceRoutes(router, engine);
   registerAdminRoutes(router, config, log);
   registerCommunityRoutes(router, log);
   registerProfileRoutes(router, log);

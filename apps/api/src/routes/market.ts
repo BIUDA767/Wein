@@ -19,6 +19,21 @@ export function registerMarketRoutes(router: Router, engine: TradingEngine): voi
     })();
   });
 
+  // A live quote for any symbol. Used by the market header and the watchlist so the
+  // displayed price always comes from the active provider, never from a cached candle.
+  router.get("/api/market/quote", ({ res, url }: RequestContext) => {
+    void (async () => {
+      const symbol = url.searchParams.get("symbol");
+      if (!symbol) { error(res, 400, "symbol is required."); return; }
+      try {
+        const quote = await engine.quote(symbol);
+        json(res, 200, { quote });
+      } catch (err) {
+        error(res, 503, `Quote unavailable for ${symbol}: ${(err as Error).message}`);
+      }
+    })();
+  });
+
   router.get("/api/market/candles", ({ res, url }: RequestContext) => {
     void (async () => {
       const symbol = url.searchParams.get("symbol");

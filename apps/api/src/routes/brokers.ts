@@ -236,6 +236,46 @@ export function registerBrokerRoutes(
     })();
   });
 
+  // The active account row with its real stored balance and currency. This is the single
+  // source the header reads for the displayed balance, so the number is always the value
+  // the broker reported at the last verification, never a client-side guess.
+  router.owner.get("/api/accounts/active", ({ res }: RequestContext) => {
+    void (async () => {
+      const selection = await getActiveSelection();
+      const accounts = await listAccounts();
+      const active = accounts.find((a) => a.is_active) ?? null;
+      const accountsForBroker = selection.brokerId ? accounts.filter((a) => a.broker_id === selection.brokerId) : [];
+      json(res, 200, {
+        selection,
+        account: active
+          ? {
+              id: String(active.id),
+              accountId: String(active.account_id),
+              accountType: String(active.account_type),
+              currency: String(active.currency ?? "USD"),
+              balance: active.balance === null || active.balance === undefined ? null : Number(active.balance),
+              loginid: active.loginid ? String(active.loginid) : null,
+              label: active.label ? String(active.label) : null,
+              status: active.status ? String(active.status) : null,
+              brokerId: String(active.broker_id),
+            }
+          : null,
+        accounts: accountsForBroker.map((a) => ({
+          id: String(a.id),
+          accountId: String(a.account_id),
+          accountType: String(a.account_type),
+          currency: String(a.currency ?? "USD"),
+          balance: a.balance === null || a.balance === undefined ? null : Number(a.balance),
+          loginid: a.loginid ? String(a.loginid) : null,
+          label: a.label ? String(a.label) : null,
+          status: a.status ? String(a.status) : null,
+          brokerId: String(a.broker_id),
+          isActive: a.is_active === true,
+        })),
+      });
+    })();
+  });
+
   router.owner.delete("/api/brokers/:id", ({ res, params, ip }: RequestContext) => {
     void (async () => {
       const row = await getBroker(params.id!);

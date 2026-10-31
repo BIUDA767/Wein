@@ -224,3 +224,18 @@ the behaviour it protects.
     the provider. A token that fails verification is stored but marked `error`, and the UI
     says so instead of showing a false success.
 
+61. The header balance is the figure the broker reported for the *selected* account, in that
+    account's own currency. A missing selection, a failed fetch and a genuine zero are three
+    distinct states — the first two render as "—"/an error string, never as `0.00`, so a
+    failed fetch can never be mistaken for an empty account.
+62. Price alerts are evaluated against a live quote and fire exactly once; firing records the
+    crossing price in the notification feed and sets `triggeredAt`. An alert is never marked
+    fired from a cached or invented price, and a symbol the provider cannot quote leaves the
+    alert armed rather than firing it.
+63. Switching the active account while open orders or pending proposals exist requires an
+    explicit confirmation (`409 requiresConfirmation`), mirroring the broker-connect rule
+    (invariant 58). The confirmation is enforced server-side; the sheet's "Confirm" button
+    only re-sends the same request with `confirm: true`.
+64. The chart renders only candles the API returned. When the feed is disconnected it draws
+    axes and a connection notice and no price series — it never synthesises candles to keep
+    the panel looking alive.

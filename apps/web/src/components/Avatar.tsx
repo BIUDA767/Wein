@@ -154,9 +154,30 @@ export function Avatar({ state, size = 72, onClick, urgency = "normal", speech, 
       const openness = Math.min(1, mouth.open * (1 + level * 0.35));
 
       // --- Expression --------------------------------------------------------
-      const browRaise = s === "alert" ? 0.9 : s === "listening" ? 0.45 : s === "thinking" ? 0.2 : 0;
-      const eyeOpen = s === "thinking" ? 0.62 : s === "alert" ? 1.12 : 1;
-      const smile = s === "idle" ? 0.16 : s === "listening" ? 0.3 : speaking ? 0.22 : 0;
+      // Urgency colours the expression: a critical alert knits the brow and widens the
+      // eyes, while a normal, unhurried moment carries a slight, warm smile. The avatar's
+      // face is a readout of real system state, not a fixed mask.
+      const worried = u === "critical";
+      const attentive = u === "attention";
+      const browRaise =
+        s === "alert" ? 0.9
+        : s === "listening" ? 0.45
+        : s === "thinking" ? 0.2
+        : worried ? -0.5
+        : attentive ? 0.28
+        : 0;
+      const eyeOpen =
+        s === "thinking" ? 0.62
+        : s === "alert" ? 1.12
+        : worried ? 1.16
+        : attentive ? 1.04
+        : 1;
+      const smile =
+        s === "idle" ? (worried ? -0.14 : attentive ? 0.1 : 0.16)
+        : s === "listening" ? 0.3
+        : speaking ? (worried ? -0.1 : 0.22)
+        : worried ? -0.16
+        : 0;
 
       const accent = u === "critical" ? [255, 92, 122] : u === "attention" ? [212, 184, 120] : [61, 220, 151];
 

@@ -3,26 +3,29 @@
 @tailwind utilities;
 
 /*
- * WEIN design system. Dark only.
- * Surfaces #0A0A0B -> #121214, cards #1C1C1F, inputs #252528.
- * Emerald #00C853, ruby #FF3B30, gold #D4AF37, silver for structure, cyan for PHIRST2.
+ * WEIN design system. Dark only, by specification.
+ * Background #050607, panels #101216, borders #242830.
+ * Text #FFFFFF / #9299A8 / #626978.
+ * Positive #00D6A0, negative #F04452, brand accent #C7A27D, cyan for PHIRST2.
  */
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
-  --surface-0: #0a0a0b;
-  --surface-1: #0e0e10;
-  --surface-2: #121214;
-  --card: #1c1c1f;
-  --input: #252528;
-  --hairline: rgba(255, 255, 255, 0.07);
-  --hairline-strong: rgba(255, 255, 255, 0.12);
-  --green: #00c853;
-  --red: #ff3b30;
-  --gold: #d4af37;
-  --silver: #a6afba;
+  --surface-0: #050607;
+  --surface-1: #0b0d10;
+  --surface-2: #101216;
+  --card: #15181d;
+  --input: #1b1f26;
+  --border: #242830;
+  --hairline: rgba(146, 153, 168, 0.12);
+  --hairline-strong: rgba(146, 153, 168, 0.22);
+  --green: #00d6a0;
+  --red: #f04452;
+  --gold: #c7a27d;
+  --silver: #9299a8;
   --cyan: #3ddcff;
-  --muted: #a0a0a5;
+  --muted: #626978;
+  --text-2: #9299a8;
 }
 
 * { -webkit-tap-highlight-color: transparent; }
@@ -43,37 +46,37 @@ body {
 /* A restrained graphite field. Never neon. */
 .app-field {
   background:
-    radial-gradient(1000px 560px at 50% -20%, rgba(0, 200, 83, 0.05), transparent 64%),
-    radial-gradient(760px 420px at 110% 6%, rgba(212, 175, 55, 0.032), transparent 60%),
-    radial-gradient(620px 340px at -10% 22%, rgba(166, 175, 186, 0.028), transparent 62%),
-    linear-gradient(178deg, #0e0e10 0%, #0a0a0b 52%, #08080a 100%);
+    radial-gradient(1000px 560px at 50% -20%, rgba(0, 214, 160, 0.045), transparent 64%),
+    radial-gradient(760px 420px at 110% 6%, rgba(199, 162, 125, 0.03), transparent 60%),
+    radial-gradient(620px 340px at -10% 22%, rgba(146, 153, 168, 0.025), transparent 62%),
+    linear-gradient(178deg, #0b0d10 0%, #050607 52%, #050607 100%);
 }
 
 @layer components {
-  /* iPhone-style surface. Cards use 12-16px radius.
-     The sheen plus the specular edge is what separates graphite from a flat grey box. */
+  /* iPhone-style surface. Cards use 14-18px radius.
+     A restrained sheen plus a specular edge separates graphite from a flat grey box. */
   .glass {
     @apply relative rounded-card border backdrop-blur-xl;
-    border-color: var(--hairline);
+    border-color: var(--border);
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.008) 40%, rgba(0, 0, 0, 0.12) 100%),
-      linear-gradient(170deg, rgba(32, 32, 36, 0.9) 0%, rgba(22, 22, 25, 0.94) 100%);
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.006) 40%, rgba(0, 0, 0, 0.14) 100%),
+      linear-gradient(170deg, #14171c 0%, #101216 100%);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
   .glass-raised {
     @apply relative rounded-card border backdrop-blur-2xl;
     border-color: var(--hairline-strong);
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.012) 42%, rgba(0, 0, 0, 0.14) 100%),
-      linear-gradient(170deg, rgba(42, 42, 47, 0.95) 0%, rgba(26, 26, 29, 0.97) 100%);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.09);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 42%, rgba(0, 0, 0, 0.16) 100%),
+      linear-gradient(170deg, #1a1e24 0%, #121519 100%);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.64), inset 0 1px 0 rgba(255, 255, 255, 0.07);
   }
-  /* Brushed-metal hairline: silver into champagne. Used sparingly, for structure. */
+  /* Champagne hairline: used sparingly, for structure and the brand. */
   .metal-edge {
     border-color: transparent;
     background-image:
       linear-gradient(var(--card), var(--card)),
-      linear-gradient(160deg, rgba(226, 232, 240, 0.40), rgba(212, 175, 55, 0.20) 46%, rgba(120, 128, 140, 0.14));
+      linear-gradient(160deg, rgba(146, 153, 168, 0.36), rgba(199, 162, 125, 0.30) 46%, rgba(98, 105, 120, 0.16));
     background-origin: border-box;
     background-clip: padding-box, border-box;
   }
@@ -83,16 +86,16 @@ body {
      Lighter than .glass, so nesting a tile inside a card still reads as two levels. */
   .tile {
     @apply rounded-2xl border;
-    border-color: var(--hairline);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.012) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-color: var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.008) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
-  .tile-hover:hover { border-color: var(--hairline-strong); background: linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.028) 100%); }
-  /* Selected tile: champagne structure, the crystal's colour. */
+  .tile-hover:hover { border-color: var(--hairline-strong); background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.022) 100%); }
+  /* Selected tile: champagne structure, the brand's colour. */
   .tile-active {
-    border-color: rgba(212, 175, 55, 0.45);
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.16) 0%, rgba(212, 175, 55, 0.06) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 14px rgba(212, 175, 55, 0.12);
+    border-color: rgba(199, 162, 125, 0.45);
+    background: linear-gradient(180deg, rgba(199, 162, 125, 0.16) 0%, rgba(199, 162, 125, 0.06) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 14px rgba(199, 162, 125, 0.10);
   }
 
   /* Tactile feedback on every control. */
@@ -104,63 +107,63 @@ body {
   .btn:disabled { @apply cursor-not-allowed opacity-40 active:scale-100; }
   .btn-primary {
     @apply btn text-black;
-    background: linear-gradient(180deg, #35dd6f 0%, #00c853 52%, #00a344 100%);
-    box-shadow: 0 8px 22px rgba(0, 200, 83, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    background: linear-gradient(180deg, #3ae9c0 0%, #00d6a0 52%, #00b487 100%);
+    box-shadow: 0 8px 22px rgba(0, 214, 160, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.32);
   }
   .btn-danger {
     @apply btn text-white;
-    background: linear-gradient(180deg, #ff6157 0%, #ff3b30 52%, #d92b21 100%);
-    box-shadow: 0 8px 22px rgba(255, 59, 48, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+    background: linear-gradient(180deg, #ff6272 0%, #f04452 52%, #c9313d 100%);
+    box-shadow: 0 8px 22px rgba(240, 68, 82, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.24);
   }
   .btn-ghost {
     @apply btn border text-[15px] font-medium text-white/85;
     border-color: var(--hairline-strong);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.03) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.022) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
-  .btn-ghost:hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.05) 100%); }
+  .btn-ghost:hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.095) 0%, rgba(255, 255, 255, 0.04) 100%); }
   .btn-gold {
     @apply btn text-black;
-    background: linear-gradient(180deg, #f0da95 0%, #d4af37 55%, #a98a2b 100%);
-    box-shadow: 0 8px 22px rgba(212, 175, 55, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+    background: linear-gradient(180deg, #e6d3bc 0%, #c7a27d 55%, #a5825f 100%);
+    box-shadow: 0 8px 22px rgba(199, 162, 125, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.42);
   }
-  /* Large trading buttons: 28-32px radius. */
+  /* Large trading buttons: 26-30px radius. */
   .btn-trade {
     @apply btn rounded-pill py-4 text-[17px] font-bold;
   }
   .btn-buy {
     @apply btn-trade text-black;
-    background: linear-gradient(180deg, #35dd6f 0%, #00c853 52%, #00a344 100%);
-    box-shadow: 0 10px 26px rgba(0, 200, 83, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    background: linear-gradient(180deg, #3ae9c0 0%, #00d6a0 52%, #00b487 100%);
+    box-shadow: 0 10px 26px rgba(0, 214, 160, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.34);
   }
   .btn-sell {
     @apply btn-trade text-white;
-    background: linear-gradient(180deg, #ff6157 0%, #ff3b30 52%, #d92b21 100%);
-    box-shadow: 0 10px 26px rgba(255, 59, 48, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+    background: linear-gradient(180deg, #ff6272 0%, #f04452 52%, #c9313d 100%);
+    box-shadow: 0 10px 26px rgba(240, 68, 82, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.24);
   }
 
   .field {
     @apply w-full rounded-2xl border px-4 py-3 text-[15px] text-white
            placeholder:text-white/30 focus:outline-none focus:ring-1 transition;
     border-color: var(--hairline-strong);
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0.30) 100%);
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.32) 100%);
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
   }
-  .field:focus { border-color: rgba(0, 200, 83, 0.6); --tw-ring-color: rgba(0, 200, 83, 0.35); }
+  .field:focus { border-color: rgba(0, 214, 160, 0.6); --tw-ring-color: rgba(0, 214, 160, 0.35); }
 
   .label { @apply mb-1.5 block text-[11px] font-semibold uppercase text-white/45; letter-spacing: 0.12em; }
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition;
     border-color: var(--hairline-strong);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.028) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.022) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
   .chip:hover { border-color: rgba(255, 255, 255, 0.22); }
   .chip-active {
-    border-color: rgba(0, 200, 83, 0.55);
-    background: linear-gradient(180deg, rgba(0, 200, 83, 0.24) 0%, rgba(0, 200, 83, 0.12) 100%);
-    color: #86f4b3;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 14px rgba(0, 200, 83, 0.16);
+    border-color: rgba(0, 214, 160, 0.55);
+    background: linear-gradient(180deg, rgba(0, 214, 160, 0.24) 0%, rgba(0, 214, 160, 0.12) 100%);
+    color: #8ef7d8;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 14px rgba(0, 214, 160, 0.14);
   }
   .kpi-label { @apply text-[10.5px] font-semibold uppercase text-white/40; letter-spacing: 0.14em; }
   .kpi-value { @apply font-display text-[22px] leading-tight tracking-tight text-white; }
@@ -169,16 +172,16 @@ body {
     @apply fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[520px] rounded-t-[28px] border-t backdrop-blur-2xl;
     border-color: var(--hairline-strong);
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 22%),
-      linear-gradient(180deg, rgba(24, 24, 27, 0.97) 0%, rgba(14, 14, 16, 0.99) 100%);
-    box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 22%),
+      linear-gradient(180deg, rgba(20, 23, 28, 0.98) 0%, rgba(11, 13, 16, 0.99) 100%);
+    box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     animation: slide-up 0.34s cubic-bezier(0.22, 1, 0.36, 1);
     max-height: 92dvh;
   }
   /* Grab handle for sheets, as on native iOS. */
   .sheet-grab {
     @apply mx-auto mb-1 h-1 w-10 rounded-full;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.10));
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
   }
   .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 16px); }
   .safe-top { padding-top: max(env(safe-area-inset-top), 8px); }
@@ -187,8 +190,8 @@ body {
   /* Bottom tab bar. Native-feeling, respects the home indicator. */
   .tabbar {
     @apply fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur-2xl;
-    border-color: var(--hairline);
-    background: linear-gradient(180deg, rgba(16, 16, 18, 0.88) 0%, rgba(9, 9, 10, 0.98) 100%);
+    border-color: var(--border);
+    background: linear-gradient(180deg, rgba(16, 18, 22, 0.9) 0%, rgba(5, 6, 7, 0.98) 100%);
     padding-bottom: max(env(safe-area-inset-bottom), 6px);
   }
   .tab-item { @apply flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition; }

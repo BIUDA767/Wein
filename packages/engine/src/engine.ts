@@ -48,6 +48,7 @@ import {
   type TradeProposal,
   type AgentVerdict,
   type Candle,
+  type Quote,
   type Logger,
 } from "@phirst/core";
 import { GeminiClient, runAgentPanel, evaluateProactiveAlerts, type AgentContext, type TradeHistoryStats, type PhirstFacts } from "@phirst/ai";
@@ -1116,6 +1117,28 @@ export class TradingEngine {
     if (!this.market) await this.refreshBroker();
     if (!this.market) throw new Error("Market data is unavailable.");
     return this.market.candles(symbol, granularitySec, count);
+  }
+
+  /** A single live quote for an arbitrary symbol, from the active market-data provider. */
+  async quote(symbol: string): Promise<Quote> {
+    if (!this.market) await this.refreshBroker();
+    if (!this.market) throw new Error("Market data is unavailable.");
+    return this.market.quote(symbol);
+  }
+
+  /** Live quotes for several symbols, tolerating per-symbol failure rather than all-or-nothing. */
+  async quotes(symbols: string[]): Promise<Record<string, Quote | null>> {
+    const out: Record<string, Quote | null> = {};
+    await Promise.all(
+      symbols.map(async (s) => {
+        try {
+          out[s] = await this.quote(s);
+        } catch {
+          out[s] = null;
+        }
+      }),
+    );
+    return out;
   }
 
   async instruments() {

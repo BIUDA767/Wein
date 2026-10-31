@@ -6,8 +6,10 @@ import { Emblem } from "./Emblem";
 import { NavIcon } from "./NavIcons";
 import { Chart, type ChartStyle, type IndicatorKey } from "./Chart";
 import { Card, ConfirmDialog, Dot, EmptyState, Pill, Row, SectionTitle, Sheet, Spinner, Toast } from "./ui";
+import { AccountBalance, AccountSheet, AlertsPanel, Watchlist } from "./Terminal";
 import { api, ApiFailure, type Candle, type ChatReply, type EngineStatus, type OrderRecord, type PerformanceReport, type PositionRecord } from "@/lib/api";
 import { useAppState } from "@/lib/store";
+import { useActiveAccount } from "@/lib/account";
 import { useVoice } from "@/lib/voice";
 import { sound } from "@/lib/sound";
 import { Panels, type PanelKey } from "./Panels";
@@ -34,6 +36,8 @@ export type NavKey = "trade" | "positions" | "discover" | "assets" | "more";
 export type MoreKey =
   | "hub"
   | "history"
+  | "watchlist"
+  | "alerts"
   | "notifications"
   | "community"
   | "messages"
@@ -45,6 +49,8 @@ export type MoreKey =
 
 const MORE_LABELS: Record<Exclude<MoreKey, "hub">, string> = {
   history: "Trade history",
+  watchlist: "Watchlist",
+  alerts: "Price alerts",
   notifications: "Notifications",
   community: "Community",
   messages: "Messages",
@@ -59,6 +65,7 @@ export function TradingShell() {
   const app = useAppState(true);
   const { isOwner, isModerator } = useSession();
   const { engine, risk, notifications, voice, connected, refresh, notify, toasts, dismissToast, prefs } = app;
+  const account = useActiveAccount(connected);
 
   const [tab, setTab] = useState<"trade" | "positions" | "history">("trade");
   // Primary navigation. `more` is the hub that leads to the secondary screens.
@@ -78,6 +85,7 @@ export function TradingShell() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [orderSheet, setOrderSheet] = useState<"buy" | "sell" | null>(null);
+  const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [assetSheetOpen, setAssetSheetOpen] = useState(false);
   const [assetQuery, setAssetQuery] = useState("");
   const [perf, setPerf] = useState<PerformanceReport | null>(null);
@@ -92,6 +100,20 @@ export function TradingShell() {
   const chartStyle: ChartStyle = prefs?.chartStyle ?? "candles";
   const chartGrid = prefs?.chartGrid ?? true;
   const chartHeight = prefs?.chartHeight ?? 320;
+
+  // A session-only override so the chart-style chips act immediately, without waiting for
+  // a preferences round-trip. The preference itself is persisted so the choice survives.
+  const [styleOverride, setStyleOverride] = useState<ChartStyle | null>(null);
+  const effectiveStyle: ChartStyle = styleOverride ?? chartStyle;
+  const setChartStylePref = useCallback(
+    (style: ChartStyle) => {
+      setStyleOverride(style);
+      void api.put("/api/preferences", { ...(prefs ?? {}), chartStyle: style }).catch(() => {
+        /* the override still applies for this session; the next load retries persistence */
+      });
+    },
+    [prefs],
+  );
   const timeframes = prefs?.timeframes?.length ? prefs.timeframes : [60, 300, 900, 3600, 14400, 86400];
   const tiles = prefs?.dashboardTiles ?? ["equity", "pnl", "open"];
   const soundOn = prefs?.soundEnabled ?? true;
@@ -337,14 +359,14 @@ export function TradingShell() {
 
       <header className="safe-top sticky top-0 z-40 px-4 pb-3 backdrop-blur-xl"
         style={{
-          background: "linear-gradient(180deg, rgba(10,10,11,0.92) 0%, rgba(10,10,11,0.82) 100%)",
+          background: "linear-gradient(180deg, rgba(5,6,7,0.94) 0%, rgba(5,6,7,0.84) 100%)",
           borderBottom: "1px solid transparent",
-          borderImage: "linear-gradient(90deg, transparent, rgba(166,175,186,0.22) 22%, rgba(212,175,55,0.30) 50%, rgba(166,175,186,0.22) 78%, transparent) 1",
+          borderImage: "linear-gradient(90deg, transparent, rgba(146,153,168,0.20) 22%, rgba(199,162,125,0.34) 50%, rgba(146,153,168,0.20) 78%, transparent) 1",
         }}
       >
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-2.5">
-            <Emblem size={30} className="shrink-0 drop-shadow-[0_2px_6px_rgba(212,175,55,0.25)]" />
+            <Emblem size={30} className="shrink-0 drop-shadow-[0_2px_6px_rgba(199,162,125,0.28)]" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-display text-[15px] tracking-[0.14em] text-white">WEIN</span>
@@ -371,13 +393,26 @@ export function TradingShell() {
             <button
               onClick={() => { tap(); setPanelsOpen(true); }}
               className="rounded-full border border-white/12 bg-gradient-to-b from-white/8 to-white/3 p-2 shadow-edge active:scale-95"
-              aria-label="Open controls"
+              aria-label="Open controls and settings"
             >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="text-white/80">
                 <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* Account balance: the real figure for the selected account, with its currency. */}
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <AccountBalance account={account} onOpen={() => { tap(); setAccountSheetOpen(true); }} />
+          {engine?.updatedAt && (
+            <div className="pb-1 text-right text-[10.5px] text-white/35">
+              <div>Updated {timeAgo(engine.updatedAt)}</div>
+              {engine.pendingProposals.length > 0 && (
+                <div className="mt-0.5 text-champagne-300">{engine.pendingProposals.length} awaiting approval</div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className={`mt-3 grid gap-2 ${kpiTiles.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
@@ -473,16 +508,39 @@ export function TradingShell() {
                       </button>
                     ))}
                   </div>
-                  {chartLoading && <Spinner size={13} />}
+                  <div className="flex items-center gap-1.5">
+                    {chartLoading && <Spinner size={13} />}
+                    <button
+                      onClick={() => { tap(); setPanelsInitial("appearance"); setPanelsOpen(true); }}
+                      aria-label="Chart settings"
+                      title="Chart settings"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/12 text-white/55 transition hover:border-white/25 hover:text-white/80 active:scale-95"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <circle cx="12" cy="12" r="3.2" />
+                        <path d="M12 3v2.2M12 18.8V21M4.2 7.4l1.9 1.1M17.9 15.5l1.9 1.1M4.2 16.6l1.9-1.1M17.9 8.5l1.9-1.1" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <div className="mb-2 flex gap-1">
+                <div className="mb-2 flex items-center gap-1 overflow-x-auto">
                   {INDICATORS.map((ind) => (
                     <button
                       key={ind.key}
                       onClick={() => { tap(); setIndicators((prev) => (prev.includes(ind.key) ? prev.filter((k) => k !== ind.key) : [...prev, ind.key])); }}
-                      className={`chip ${indicators.includes(ind.key) ? "chip-active" : ""}`}
+                      className={`chip shrink-0 ${indicators.includes(ind.key) ? "chip-active" : ""}`}
                     >
                       {ind.label}
+                    </button>
+                  ))}
+                  <span className="mx-0.5 h-4 w-px shrink-0 bg-white/10" />
+                  {([["candles", "Candles"], ["line", "Line"], ["area", "Area"], ["hollow", "Hollow"]] as Array<[ChartStyle, string]>).map(([style, label]) => (
+                    <button
+                      key={style}
+                      onClick={() => { tap(); setChartStylePref(style); }}
+                      className={`chip shrink-0 ${effectiveStyle === style ? "chip-active" : ""}`}
+                    >
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -491,10 +549,49 @@ export function TradingShell() {
                   indicators={indicators}
                   height={chartHeight}
                   revision={candles.length}
-                  chartStyle={chartStyle}
+                  chartStyle={effectiveStyle}
                   grid={chartGrid}
+                  disconnected={!connected}
+                  disconnectedReason={!connected ? "Reconnecting to the market-data feed…" : undefined}
                 />
               </Card>
+
+              <div className="mb-3 tile px-3 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="label mb-1">Amount (USD)</div>
+                    <div className="flex items-center gap-1.5">
+                      <button className="chip !px-2.5 !py-1" onClick={() => { tap(); setAmount((a) => String(Math.max(1, Math.round((Number(a) || 10) - 5)))); }} aria-label="Decrease amount">−</button>
+                      <input
+                        className="field mono-num !w-[88px] !py-1.5 text-center text-[15px] font-semibold"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                      />
+                      <button className="chip !px-2.5 !py-1" onClick={() => { tap(); setAmount((a) => String((Number(a) || 0) + 5)); }} aria-label="Increase amount">+</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 pl-3">
+                    <div className="label mb-1">Duration (s)</div>
+                    <div className="flex items-center gap-1.5">
+                      {([15, 60, 300] as const).map((d) => (
+                        <button
+                          key={d}
+                          className={`chip flex-1 justify-center ${duration === String(d) ? "chip-active" : ""}`}
+                          onClick={() => { tap(); setDuration(String(d)); }}
+                        >
+                          {d}s
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {risk && (
+                  <p className="mt-2 text-[10.5px] leading-relaxed text-white/35">
+                    Risk per trade {(risk.riskPerTrade * 100).toFixed(2)}% · per-trade ceiling {money(risk.maxTradeAmount)}. The risk engine may reduce this amount.
+                  </p>
+                )}
+              </div>
 
               <div className="mb-4 grid grid-cols-2 gap-3">
                 <button
@@ -679,6 +776,29 @@ export function TradingShell() {
               <span className="text-[15px] leading-none">‹</span> Back
             </button>
             {more === "history" && <HistoryScreen notify={notify} onOpenControls={() => setPanelsOpen(true)} engine={engine} />}
+            {more === "watchlist" && (
+              <Card className="mb-3">
+                <SectionTitle action={<button className="text-[11px] text-white/45" onClick={() => { setAssetSheetOpen(true); }}>Add symbol</button>}>
+                  Watchlist
+                </SectionTitle>
+                <Watchlist
+                  current={symbol}
+                  notify={notify}
+                  onSelect={(sym) => {
+                    void run("symbol", async () => {
+                      await api.post("/api/engine/symbol", { symbol: sym });
+                      notify(`Active instrument set to ${sym}.`, "good");
+                    });
+                  }}
+                />
+              </Card>
+            )}
+            {more === "alerts" && (
+              <Card className="mb-3">
+                <SectionTitle>Price alerts</SectionTitle>
+                <AlertsPanel notify={notify} />
+              </Card>
+            )}
             {more === "notifications" && <NotificationsScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
             {more === "community" && <CommunityScreen notify={notify} />}
             {more === "messages" && <MessagingScreen notify={notify} />}
@@ -777,6 +897,13 @@ export function TradingShell() {
           });
         }}
         current={symbol}
+      />
+
+      <AccountSheet
+        open={accountSheetOpen}
+        onClose={() => setAccountSheetOpen(false)}
+        account={account}
+        notify={notify}
       />
 
       <ConfirmDialog

@@ -187,6 +187,29 @@ export interface AccountRecord {
   is_active: boolean;
 }
 
+export interface ActiveAccountResponse {
+  selection: ActiveSelection;
+  health: ConnectionHealth & { broker: BrokerRecord | null };
+}
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  above: number | null;
+  below: number | null;
+  createdAt: string;
+  triggeredAt: string | null;
+  triggeredPrice: number | null;
+}
+
+export interface WatchQuote {
+  symbol: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  epochMs: number;
+}
+
 export interface OrderRecord {
   id: string;
   broker_order_id: string | null;

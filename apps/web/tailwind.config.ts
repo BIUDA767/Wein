@@ -4,33 +4,36 @@ import type { Config } from "tailwindcss";
  * WEIN design system. Dark only, by specification.
  *
  * The token names predate this palette (ink/emerald/ruby/champagne) and are kept so
- * existing markup keeps working; the values are the specified WEIN colours.
+ * existing markup keeps working; the values are the specified WEIN colours:
+ * background #050607, panels #101216, borders #242830, primary text #FFFFFF,
+ * secondary #9299A8, muted #626978, positive #00D6A0, negative #F04452,
+ * brand accent #C7A27D.
  */
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Black and graphite surfaces. Background runs #0A0A0B -> #121214.
+        // Almost-black background through to graphite panels.
         ink: {
-          950: "#0A0A0B", // app background
-          900: "#0E0E10", // elevated background
-          850: "#121214", // background light end / sheets
-          800: "#1C1C1F", // cards
-          700: "#252528", // inputs
-          600: "#2E2E33", // hairlines, hover
+          950: "#050607", // app background
+          900: "#0B0D10", // elevated background
+          850: "#101216", // panels / sheets
+          800: "#15181D", // raised cards
+          700: "#1B1F26", // inputs
+          600: "#242830", // borders, hairlines, hover
         },
-        // Emerald trading accent -> specified green.
-        emerald: { 400: "#34D96A", 500: "#00C853", 600: "#00A344", 700: "#008036" },
-        // Ruby accent for sell and loss -> specified red.
-        ruby: { 400: "#FF6B62", 500: "#FF3B30", 600: "#D92B21" },
-        // Gold detailing -> specified gold.
-        champagne: { 300: "#E8CE7A", 400: "#DFC25A", 500: "#D4AF37", 600: "#A98A2B" },
-        // Metallic silver: structural detailing, edges and the crystal emblem.
-        silver: { 100: "#F2F5F8", 200: "#DDE3E9", 300: "#C3CBD4", 400: "#A6AFBA", 500: "#8A939F", 600: "#6C7481" },
+        // Positive movement -> specified emerald.
+        emerald: { 400: "#2EE6B4", 500: "#00D6A0", 600: "#00B487", 700: "#008C69" },
+        // Negative movement -> specified coral red.
+        ruby: { 400: "#FF6B78", 500: "#F04452", 600: "#C9313D" },
+        // Brand accent -> specified champagne gold.
+        champagne: { 200: "#E6D3BC", 300: "#D8BC9E", 400: "#CFAF8C", 500: "#C7A27D", 600: "#A5825F" },
+        // Metallic silver: structural detailing and the crystal emblem.
+        silver: { 100: "#F2F5F8", 200: "#DDE3E9", 300: "#C3CBD4", 400: "#9299A8", 500: "#7B8290", 600: "#626978" },
         // Restrained cyan for PHIRST2 only.
         cyan: { 300: "#7FF0FF", 400: "#3DDCFF", 500: "#00C2E0", 600: "#0092AA" },
-        muted: "#A0A0A5",
+        muted: "#626978",
       },
       fontFamily: {
         display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],
