@@ -10,6 +10,10 @@ import { useVoice } from "@/lib/voice";
 import { sound } from "@/lib/sound";
 import { Panels } from "./Panels";
 import { OrderSheet, AssetSheet, PhirstConsole } from "./Sheets";
+import { AssetsScreen, DiscoverScreen, HistoryScreen, NotificationsScreen, PositionsScreen, ProfileScreen, SupportScreen } from "./Screens";
+import { CommunityScreen, MembersScreen, MessagingScreen } from "./Community";
+import { AdminScreen } from "./Admin";
+import { useSession } from "@/lib/session";
 import { money, signed, timeAgo, statusTone } from "@/lib/format";
 
 const TIMEFRAME_LABELS: Record<number, string> = {
@@ -23,11 +27,38 @@ const INDICATORS: Array<{ key: IndicatorKey; label: string }> = [
   { key: "rsi", label: "RSI" },
 ];
 
+export type NavKey = "trade" | "positions" | "discover" | "assets" | "more";
+export type MoreKey =
+  | "hub"
+  | "history"
+  | "notifications"
+  | "community"
+  | "messages"
+  | "members"
+  | "profile"
+  | "support"
+  | "admin";
+
+const MORE_LABELS: Record<Exclude<MoreKey, "hub">, string> = {
+  history: "Trade history",
+  notifications: "Notifications",
+  community: "Community",
+  messages: "Messages",
+  members: "Members",
+  profile: "Profile and security",
+  support: "Help and diagnostics",
+  admin: "Owner dashboard",
+};
+
 export function TradingShell() {
   const app = useAppState(true);
+  const { isOwner, isModerator } = useSession();
   const { engine, risk, notifications, voice, connected, refresh, notify, toasts, dismissToast, prefs } = app;
 
   const [tab, setTab] = useState<"trade" | "positions" | "history">("trade");
+  // Primary navigation. `more` is the hub that leads to the secondary screens.
+  const [nav, setNav] = useState<NavKey>("trade");
+  const [more, setMore] = useState<MoreKey | null>(null);
   const [timeframe, setTimeframe] = useState(60);
   const [indicators, setIndicators] = useState<IndicatorKey[]>(["ema", "rsi"]);
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -312,7 +343,9 @@ export function TradingShell() {
       </header>
 
       {/* Desktop: chart left, controls right. Mobile: one column. */}
-      <main className="flex-1 px-4 pt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-5">
+      <main className={`flex-1 px-4 pt-4 ${nav === "trade" ? "lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-5" : ""}`}>
+        {nav === "trade" && (
+          <>
         <div className="lg:min-w-0">
           <section className="mb-3">
             <button
@@ -527,13 +560,82 @@ export function TradingShell() {
               {busy === "engine-emergency-stop" ? <Spinner /> : "Emergency stop"}
             </button>
             {engine?.state === "emergency" && (
-              <button className="btn-champagne mt-2 w-full" disabled={busy !== null} onClick={() => { tap(); void engineAction("reset-emergency", "Emergency stop cleared."); }}>
+              <button className="btn-gold mt-2 w-full" disabled={busy !== null} onClick={() => { tap(); void engineAction("reset-emergency", "Emergency stop cleared."); }}>
                 {busy === "engine-reset-emergency" ? <Spinner /> : "Reset emergency stop"}
               </button>
             )}
           </Card>
         </div>
+          </>
+        )}
+
+        {nav === "positions" && <PositionsScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+        {nav === "discover" && <DiscoverScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+        {nav === "assets" && <AssetsScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+
+        {nav === "more" && more === null && (
+          <Card>
+            <SectionTitle>More</SectionTitle>
+            {(Object.keys(MORE_LABELS) as Array<Exclude<MoreKey, "hub">>)
+              .filter((k) => k !== "admin" || isOwner)
+              .filter((k) => k !== "members" || isModerator)
+              .map((k) => (
+                <button
+                  key={k}
+                  onClick={() => { tap(); setMore(k); }}
+                  className="flex w-full items-center justify-between border-b border-white/6 py-3.5 text-left last:border-0 active:opacity-70"
+                >
+                  <span className="text-[13.5px] text-white/85">{MORE_LABELS[k]}</span>
+                  <span className="text-white/30">›</span>
+                </button>
+              ))}
+            <button
+              onClick={() => { tap(); void api.post("/api/auth/logout").then(() => window.location.reload()); }}
+              className="mt-3 w-full rounded-2xl border border-ruby-500/30 bg-ruby-500/8 py-3 text-[13px] font-semibold text-ruby-400 active:scale-[0.99]"
+            >
+              Sign out
+            </button>
+          </Card>
+        )}
+
+        {nav === "more" && more !== null && (
+          <>
+            <button className="mb-3 text-[13px] text-white/50 active:opacity-70" onClick={() => { tap(); setMore(null); }}>‹ Back</button>
+            {more === "history" && <HistoryScreen notify={notify} onOpenControls={() => setPanelsOpen(true)} engine={engine} />}
+            {more === "notifications" && <NotificationsScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+            {more === "community" && <CommunityScreen notify={notify} />}
+            {more === "messages" && <MessagingScreen notify={notify} />}
+            {more === "members" && <MembersScreen notify={notify} />}
+            {more === "profile" && <ProfileScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+            {more === "support" && <SupportScreen engine={engine} notify={notify} onOpenControls={() => setPanelsOpen(true)} />}
+            {more === "admin" && isOwner && <AdminScreen notify={notify} />}
+          </>
+        )}
       </main>
+
+      {/* iPhone-style bottom tab bar. Every item performs a real navigation. */}
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-white/8 bg-ink-950/92 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1180px] items-stretch">
+          {([
+            { key: "trade" as NavKey, label: "Trade" },
+            { key: "positions" as NavKey, label: "Positions" },
+            { key: "discover" as NavKey, label: "Discover" },
+            { key: "assets" as NavKey, label: "Assets" },
+            { key: "more" as NavKey, label: "More" },
+          ]).map((item) => (
+            <button
+              key={item.key}
+              onClick={() => { tap(); setNav(item.key); setMore(null); }}
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] font-medium transition ${
+                nav === item.key ? "text-champagne-300" : "text-white/40"
+              }`}
+            >
+              <span className={`h-1 w-1 rounded-full ${nav === item.key ? "bg-champagne-300" : "bg-transparent"}`} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </nav>
 
       <div className="fixed bottom-5 right-4 z-50 flex flex-col items-end gap-2">
         {v.transcript && (

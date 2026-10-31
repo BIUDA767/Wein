@@ -25,6 +25,7 @@ import { registerTelegramRoutes } from "./routes/telegram.ts";
 import { registerPreferencesRoutes } from "./routes/preferences.ts";
 import { registerAdminRoutes } from "./routes/admin.ts";
 import { registerCommunityRoutes } from "./routes/community.ts";
+import { registerProfileRoutes } from "./routes/profile.ts";
 import { TelegramBot } from "./lib/telegram.ts";
 
 async function main(): Promise<void> {
@@ -95,6 +96,7 @@ async function main(): Promise<void> {
   registerPreferencesRoutes(router);
   registerAdminRoutes(router, config, log);
   registerCommunityRoutes(router, log);
+  registerProfileRoutes(router, log);
   registerTelegramRoutes(router, telegram, log);
   await telegram.start();
 

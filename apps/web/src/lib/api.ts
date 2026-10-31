@@ -267,3 +267,138 @@ export interface TelegramStatus {
   links: Array<{ chatId: string; permissions: string[]; updatedAt: string }>;
   availablePermissions: string[];
 }
+
+// --- Platform types (community, admin, profile) ------------------------------
+
+export type UserRole = "owner" | "moderator" | "member";
+
+export interface Identity {
+  id: string;
+  username: string;
+  displayName: string | null;
+  role: UserRole;
+  avatarSeed: string | null;
+}
+
+export interface MeResponse {
+  authenticated: boolean;
+  user: Identity;
+}
+
+export interface MemberRecord {
+  id: string;
+  username: string;
+  displayName: string | null;
+  role: UserRole;
+  avatarSeed: string | null;
+  bio: string | null;
+  suspended: boolean;
+}
+
+export interface PostRecord {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  authorSeed: string | null;
+  body: string;
+  strategyId: string | null;
+  symbol: string | null;
+  hiddenAt: string | null;
+  createdAt: string;
+  likeCount: number;
+  commentCount: number;
+  likedByMe: boolean;
+}
+
+export interface CommentRecord {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  body: string;
+  createdAt: string;
+}
+
+export interface ThreadRecord {
+  id: string;
+  otherUserId: string;
+  otherName: string;
+  otherRole: UserRole;
+  otherSeed: string | null;
+  lastMessageAt: string;
+  unreadCount: number;
+}
+
+export interface MessageRecord {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderName: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface InviteRecord {
+  code: string;
+  createdBy: string | null;
+  note: string | null;
+  expiresAt: string | null;
+  usedBy: string | null;
+  usedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  state: "available" | "used" | "revoked" | "expired";
+}
+
+export interface AdminOverview {
+  liveTradingEnabled: boolean;
+  counts: {
+    members: number;
+    owners: number;
+    moderators: number;
+    suspended: number;
+    invitesAvailable: number;
+    openReports: number;
+    openAppeals: number;
+  };
+  moderation: ModerationActionRecord[];
+}
+
+export interface ModerationActionRecord {
+  id: string;
+  targetUser: string | null;
+  targetType: string;
+  targetId: string | null;
+  action: string;
+  actor: string;
+  automated: boolean;
+  reason: string;
+  revertedAt: string | null;
+  revertedBy: string | null;
+  createdAt: string;
+}
+
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  assetClasses: string[];
+  implemented: boolean;
+  requires: string[];
+  fiveSecondExpiry: boolean;
+  docsUrl: string;
+  notes: string;
+  enabled: boolean;
+  note: string | null;
+}
+
+export interface ModerationNotice {
+  id: string;
+  title: string;
+  body: string;
+  actionId: string | null;
+  acknowledgedAt: string | null;
+  createdAt: string;
+}
